@@ -1,5 +1,5 @@
 name: clic_v6
-seed_everything: 42
+seed_everything: 20260613
 
 data:
   inputs:
@@ -22,9 +22,9 @@ data:
 
   num_objects: &num_particles 150
 
-  train_path: /share/gpu1/syw24/dmitrii_clic/train_clic_fix.root
-  valid_path: /share/gpu1/syw24/dmitrii_clic/val_clic_fix.root
-  test_path: /share/gpu1/syw24/dmitrii_clic/test_clic_fix.root
+  train_path: /fast_scratch_4/atlas/pflow/0pileup_JZ1-4_Run4_AOD_samples/partitions/GLOW/data/dijet_JZ1234_June2026_8192/train/
+  valid_path: /fast_scratch_4/atlas/pflow/0pileup_JZ1-4_Run4_AOD_samples/partitions/GLOW/data/dijet_JZ1234_June2026_8192/val/
+  test_path: /fast_scratch_4/atlas/pflow/0pileup_JZ1-4_Run4_AOD_samples/partitions/GLOW/data/dijet_JZ1234_June2026_8192/test/
 
   num_workers: 16
   num_train: -1
