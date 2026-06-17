@@ -1,5 +1,5 @@
 name: atlas_run4_jz1234_v1
-seed_everything: 42
+seed_everything: 20260616
 
 data:
   inputs:
@@ -23,16 +23,16 @@ data:
   num_objects: &num_particles 600
   max_nodes: 800
 
-  train_path: /storage/agrp/dreyet/FullEventReco/HGPflow_ATLAS/data/dijet_JZ1234_May2026/train/train_JZ1234_run4_bw-1.root
-  valid_path: /storage/agrp/dreyet/FullEventReco/HGPflow_ATLAS/data/dijet_JZ1234_May2026/val/val_JZ1234_run4_bw-1.root
-  test_path: /storage/agrp/dreyet/FullEventReco/HGPflow_ATLAS/data/dijet_JZ1234_May2026/test/test_JZ1234_run4_bw-1.root
+  train_path: /fast_scratch_4/atlas/pflow/0pileup_JZ1-4_Run4_AOD_samples/partitions/GLOW/data//dijet_JZ1234_June2026_2000/train/JZ4_user.edreyer.50520201._000284.mltree_noseg.root
+  valid_path: /fast_scratch_4/atlas/pflow/0pileup_JZ1-4_Run4_AOD_samples/partitions/GLOW/data/dijet_JZ1234_June2026_2000/val/JZ4_user.edreyer.50520201._000096.mltree_noseg.root
+  test_path: /fast_scratch_4/atlas/pflow/0pileup_JZ1-4_Run4_AOD_samples/partitions/GLOW/data/dijet_JZ1234_June2026_2000/test/JZ4_user.edreyer.50520201._000208.mltree_noseg.root
 
   num_workers: 4
   num_train: -1
   num_test: -1
   num_val: -1
 
-  batch_size: 96
+  batch_size: 128
   incidence_cutval: 0.01
 
   scale_dict_path: &scale_dict_path configs/atlas_var_transform.yaml
@@ -44,13 +44,13 @@ trainer:
   precision: bf16-mixed
   gradient_clip_val: 0.1
   log_every_n_steps: 50
-  default_root_dir: /storage/agrp/dreyet/GLOW/hepattn_nilotpal/experiments
+  default_root_dir: /home/lclissa/projects/hepattn/experiments/dryrun
   enable_progress_bar: True
 
   logger:
     class_path: hepattn.experiments.atlas.logger_utils.FixedCometLogger
     init_args:
-      project: hepattn-atlas
+      project_name: hepattn-atlas
 
   callbacks:
     # - class_path: hepattn.callbacks.Compile

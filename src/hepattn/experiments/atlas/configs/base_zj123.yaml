@@ -54,7 +54,7 @@ trainer:
   logger:
     class_path: hepattn.experiments.atlas.logger_utils.FixedCometLogger
     init_args:
-      project: hepattn-atlas
+      project_name: hepattn-atlas
 
   callbacks:
     # - class_path: hepattn.callbacks.Compile
