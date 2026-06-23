@@ -1,223 +1,125 @@
-# CLIC Training
+# ATLAS Training
 
-This document explains how `src/hepattn/experiments/clic/main.py` works in
-`fit` mode, with emphasis on data loading, train/validation/test splits, input
-features, important hyperparameters, and a small first-run recipe for new data.
+This document explains how to run the ATLAS GLOW training entrypoint and how to do a small dry-run before launching a full job.
 
 ## Entry Point
 
-`src/hepattn/experiments/clic/main.py` is intentionally small. It starts a
-Lightning CLI with:
+The ATLAS training script is:
 
-- model class: `hepattn.experiments.clic.lightning_module.MPflow`
-- data module class: `hepattn.experiments.clic.pflow_data.PflowDataModule`
-- default `fit` config: `src/hepattn/experiments/clic/configs/base.yaml`
+```text
+src/hepattn/experiments/atlas/main.py
+```
 
-In other words, most fit-mode behavior comes from:
+It starts the repo's custom Lightning CLI with:
 
-- `src/hepattn/experiments/clic/configs/base.yaml`
-- `src/hepattn/experiments/clic/pflow_data.py`
-- `src/hepattn/experiments/clic/lightning_module.py`
+- model class: `hepattn.experiments.atlas.lightning_module.MPflow`
+- data module class: `hepattn.experiments.atlas.pflow_data.PflowDataModule`
+- default `fit` config: `src/hepattn/experiments/atlas/configs/base.yaml`
+
+Most behavior comes from:
+
+- `src/hepattn/experiments/atlas/configs/base.yaml`
+- `src/hepattn/experiments/atlas/pflow_data.py`
+- `src/hepattn/experiments/atlas/lightning_module.py`
 - `src/hepattn/models/wrapper.py`
 
-## Data Files And Splits
+Run commands from the ATLAS experiment directory unless you also update relative paths in the config:
 
-Training, validation, and test data are not split internally from a single
-file. The split is file-based and configured in `base.yaml`:
+```shell
+cd src/hepattn/experiments/atlas
+```
+
+## Configuration
+
+The default config is:
+
+```text
+configs/base.yaml
+```
+
+Important sections:
+
+- `name`: run name. The CLI links this into the model name and logger experiment name.
+- `seed_everything`: global training seed.
+- `data`: ROOT file paths, feature/target settings, filtering limits, batch size, and scaling config.
+- `trainer`: epochs, GPU settings, precision, output directory, logger, and callbacks.
+- `model`: optimizer, LR schedule, MaskFormer architecture, matcher, and task losses.
+
+Key data settings:
 
 ```yaml
 data:
-  train_path: /share/gpu1/syw24/dmitrii_clic/train_clic_fix.root
-  valid_path: /share/gpu1/syw24/dmitrii_clic/val_clic_fix.root
-  test_path: /share/gpu1/syw24/dmitrii_clic/test_clic_fix.root
+  train_path: /path/to/train.root
+  valid_path: /path/to/val.root
+  test_path: /path/to/test.root
+  num_objects: 600
+  max_nodes: 800
+  num_train: -1
+  num_val: -1
+  num_test: -1
+  batch_size: 128
+  num_workers: 4
+  incidence_cutval: 0.01
+  scale_dict_path: configs/atlas_var_transform.yaml
 ```
+
+`-1` means read all available entries for that split. Positive values read at most that many entries before dataset filtering.
+
+The scaling config path is relative to the current working directory. If you run from `src/hepattn/experiments/atlas`, the default `configs/atlas_var_transform.yaml` resolves correctly.
+
+## Data Files
+
+The datamodule uses direct file paths:
+
+- `data.train_path` for training
+- `data.valid_path` for validation
+- `data.test_path` for testing
+
+Each configured path must point to one non-empty ROOT file. The dataset checks the path with `Path(path).is_file()` and then opens it with `uproot.open`.
+
+The code expects each file to contain:
+
+```text
+EventTree
+```
+
+It does not scan a base directory, glob `*.root` files, or automatically merge multiple files. A symlink to a ROOT file should work, but a directory path will not. If a split is spread over many ROOT files, merge the files first or extend the datamodule to support a list of files.
+
+## Data Flow
 
 During `fit`, `PflowDataModule.setup("fit")` creates:
 
-- a training `CLICDataset` from `data.train_path`
-- a validation `CLICDataset` from `data.valid_path`
+1. an `ATLASDataset` from `data.train_path`
+2. an `ATLASDataset` from `data.valid_path`
+3. train and validation dataloaders
 
-`data.test_path` is only used in `test` mode.
+During `test`, it creates one `ATLASDataset` from `data.test_path`.
 
-The number of entries read from each file is controlled by:
+The dataset flow is:
 
-```yaml
-data:
-  num_train: -1
-  num_val: 5000
-  num_test: -1
-```
-
-`-1` means all entries. A positive value means read at most that many ROOT tree
-entries before dataset filtering. For example, `num_val: 5000` means "read up
-to 5000 validation entries, then keep only the entries that pass the dataset
-filters."
-
-Each ROOT file must contain an `EventTree`. Data is read with `uproot`.
-
-The configured paths must point to individual ROOT files. As written,
-`CLICDataset` checks each path with `Path(path).is_file()` and then calls
-`uproot.open(filepath)`. It does not scan a directory, glob `*.root` files, or
-concatenate multiple files automatically. If a split is spread over many ROOT
-files, create one merged file first or extend `PflowDataModule`/`CLICDataset`
-to build a dataset over a list of files.
-
-## Dataset Filtering
-
-`CLICDataset` applies filtering after reading the requested number of entries.
-By default, an event is removed if:
-
-- `n_tracks + n_topos >= max_nodes`
-- `n_particles >= num_objects`
-- `remove_wrong_idxs` is true and `len(track_particle_idx) != n_tracks`
-
-Important defaults:
-
-```yaml
-data:
-  num_objects: 150
-```
-
-```python
-CLICDataset(..., max_nodes=160, remove_wrong_idxs=True)
-```
-
-`max_nodes` and `remove_wrong_idxs` are constructor defaults in
-`pflow_data.py`, not explicit defaults in `base.yaml`.
-
-When the dataset is created, it prints how many events were removed for too
-many nodes, too many particles, and mismatching `track_particle_idx`. These
-messages are useful when checking new data.
-
-## ROOT Branches Read
-
-The dataset reads track, topocluster, particle, and auxiliary association
-branches.
-
-Track branches:
+1. Open the ROOT file and read `EventTree`.
+2. Load track, topocluster, truth particle, and association branches in chunks of 1000 events.
+3. Build event counts for tracks, topoclusters, and particles.
+4. Remove events with too many nodes or particles:
 
 ```text
-track_pt
-track_eta
-track_phi
-track_d0
-track_z0
-track_eta_int
-track_phi_int
-track_chi2
-track_ndf
-track_radiusofinnermosthit
-track_tanlambda
-track_omega
+n_tracks + n_topos >= max_nodes
+n_particles >= num_objects
 ```
 
-Topocluster branches:
+5. If `remove_wrong_idxs` is true, remove events where `len(track_particle_idx) != n_tracks`.
+6. Flatten accepted events into tensors.
+7. Normalize phi values and create sin/cos phi variables.
+8. For each event, build padded node features from tracks followed by topoclusters.
+9. Build padded truth particle targets.
+10. Build the truth incidence matrix from track-particle and topo-particle associations.
+11. Return `(inputs, labels)` to the dataloader.
+
+The important model inputs include:
 
 ```text
-topo_eta
-topo_phi
-topo_rho
-topo_e
-topo_sigma_eta
-topo_sigma_phi
-topo_sigma_rho
-topo_energy_ecal
-topo_energy_hcal
-topo_energy_other
-```
-
-Truth particle branches:
-
-```text
-particle_e
-particle_pt
-particle_eta
-particle_phi
-particle_pdgid
-```
-
-Auxiliary branches:
-
-```text
-particle_track_idx
-track_particle_idx
-topo2particle_topo_idx
-topo2particle_particle_idx
-topo2particle_energy
-```
-
-## Input Features
-
-The model input is a padded sequence of nodes. Nodes are tracks followed by
-topoclusters. The main model input tensor is:
-
-```python
-inputs["node_features"]
-```
-
-Its shape is approximately:
-
-```text
-(batch_size, max_nodes, 27)
-```
-
-The 27 node features are built in `CLICDataset.load_event`.
-
-Common features:
-
-```text
-pt
-eta
-phi
-cosphi
-sinphi
-```
-
-Track interaction features:
-
-```text
-eta_int
-phi_int
-cosphi_int
-sinphi_int
-```
-
-Track-only features, zero-filled for topoclusters:
-
-```text
-z0
-d0
-chi2
-ndf
-radiusofinnermosthit
-tanlambda
-omega
-```
-
-Topocluster-only features, zero-filled for tracks:
-
-```text
-e
-rho
-sigma_eta
-sigma_phi
-sigma_rho
-energy_ecal
-energy_hcal
-energy_other
-em_frac
-```
-
-Type flags:
-
-```text
-is_track
-is_topo
-```
-
-The model also receives raw node variables:
-
-```text
+node_features
+node_valid
 node_e
 node_pt
 node_eta
@@ -227,222 +129,59 @@ node_cosphi
 node_is_track
 ```
 
-These are listed under `model.model.init_args.raw_variables` in `base.yaml`.
-They are used by later task heads, especially incidence and regression.
-
-Feature scaling is configured by:
-
-```yaml
-data:
-  scale_dict_path: configs/clic_var_transform.yaml
-```
-
-That path is relative to the current working directory. The documented command
-in `src/hepattn/experiments/clic/README.md` runs from
-`src/hepattn/experiments/clic`, where `configs/clic_var_transform.yaml` exists.
-
-Note: in the current implementation, the constructed `node_features["cosphi"]`
-and `node_features["sinphi"]` concatenate `topo_phi` for topocluster nodes,
-while the raw features use `topo_cosphi` and `topo_sinphi`.
-
-## Targets
-
-The dataset returns `(inputs, labels)`.
-
-Classification and validity labels:
+The important labels include:
 
 ```text
 particle_class
 particle_valid
 node_valid
-```
-
-Mask/incidence labels:
-
-```text
 particle_node_valid
 particle_incidence
-```
-
-Regression labels:
-
-```text
 particle_e
 particle_pt
 particle_eta
 particle_sinphi
 particle_cosphi
-```
-
-Event bookkeeping:
-
-```text
 event_number
+mc_channel_number
 ```
 
-The particle-to-node incidence matrix is built from:
+`particle_node_valid` is computed from the incidence matrix using:
 
 ```text
-track_particle_idx
-topo2particle_topo_idx
-topo2particle_particle_idx
-topo2particle_energy
+particle_incidence > data.incidence_cutval
 ```
 
-Tracks get hard assignment weights of `1.0`. Topoclusters get energy
-contribution weights from `topo2particle_energy`. Columns with no associated
-particle are assigned to fake rows where possible. Each node column is then
-normalized so its contributions sum to 1.
+## Dry-Run Training
 
-`data.incidence_cutval` controls the boolean mask target:
-
-```yaml
-data:
-  incidence_cutval: 0.01
-```
-
-The label `particle_node_valid` is computed as:
-
-```python
-particle_incidence > incidence_cutval
-```
-
-## Model And Training Step
-
-The configured model is `hepattn.models.MaskFormer`.
-
-The `MPflow` Lightning module subclasses `ModelWrapper`. In each training step:
-
-1. Unpack the batch into `inputs, targets`.
-2. Run `outputs = self.model(inputs)`.
-3. Compute task losses with `self.model.loss(outputs, targets)`.
-4. Sum and log losses.
-5. Periodically run prediction and metric logging every
-   `trainer.log_every_n_steps`.
-6. Return the total loss to Lightning.
-
-Validation does the same forward and loss computation, then always runs
-prediction and metric logging.
-
-## Major Hyperparameters
-
-Data:
-
-```yaml
-data:
-  num_objects: 150
-  num_workers: 16
-  num_train: -1
-  num_val: 5000
-  num_test: -1
-  batch_size: 512
-  incidence_cutval: 0.01
-```
-
-Trainer:
-
-```yaml
-trainer:
-  max_epochs: 200
-  accelerator: gpu
-  devices: 2
-  precision: bf16-mixed
-  gradient_clip_val: 0.1
-  log_every_n_steps: 50
-  default_root_dir: logs
-```
-
-Optimizer and LR schedule:
-
-```yaml
-model:
-  optimizer: Lion
-  lrs_config:
-    initial: 1e-6
-    max: 8e-5
-    end: 1e-6
-    pct_start: 0.05
-    weight_decay: 1e-4
-    skip_scheduler: false
-```
-
-The scheduler is `torch.optim.lr_scheduler.OneCycleLR`, configured in
-`ModelWrapper.configure_optimizers`.
-
-Architecture:
-
-```yaml
-model:
-  model:
-    init_args:
-      dim: 256
-      encoder:
-        num_layers: 6
-        attn_type: flash-varlen
-        num_register_tokens: 8
-        attn_kwargs:
-          num_heads: 16
-      decoder:
-        num_decoder_layers: 4
-        num_queries: 150
-        mask_attention: true
-```
-
-Task heads and main loss weights:
-
-```yaml
-classification:
-  object_ce: 2
-
-mask:
-  mask_bce: 5.0
-  mask_dice: 1.0
-
-incidence:
-  kl_div: 1.0
-
-regression:
-  loss: l1
-  loss_weight: 10.0
-  cost_weight: 10.0
-```
-
-## First Run On New Data
-
-For a smoke test, use a very small run before launching the full default
-configuration:
+Use this before launching a real job. It disables the logger, uses one device, loads only a few events, and asks Lightning to run a minimal train/validation loop.
 
 ```shell
-cd src/hepattn/experiments/clic
-python main.py fit \
-  --config configs/base.yaml \
-  --data.train_path /path/to/train.root \
-  --data.valid_path /path/to/val.root \
-  --data.num_train 100 \
-  --data.num_val 50 \
-  --data.batch_size 4 \
-  --data.num_workers 0 \
-  --trainer.devices 1 \
-  --trainer.max_epochs 1 \
-  --trainer.logger false \
+cd src/hepattn/experiments/atlas
+
+CUDA_VISIBLE_DEVICES=5 python main.py fit \
+  -c configs/base.yaml \
+  --trainer.logger=false \
+  --trainer.fast_dev_run=true \
+  --trainer.devices=1 \
+  --data.num_train=100 \
+  --data.num_val=50 \
+  --data.batch_size=10 \
+  --data.num_workers=0 \
   --trainer.callbacks=[]
 ```
 
-Things to check first:
+Keep the options after `fit`; they are subcommand options. Use `CUDA_VISIBLE_DEVICES` to select the GPU for the quick check.
 
-- The ROOT files exist and are non-empty.
-- Each file contains an `EventTree`.
-- All required branches listed above exist.
-- The dataset printout says that at least some events remain after filtering.
-- `node_features` has 27 features, matching `input_size: 27` in `base.yaml`.
-- No event in the smoke-test sample exceeds `max_nodes` or `num_objects` unless
-  you intentionally override those limits.
-- If Comet is not configured, keep `--trainer.logger false` for the smoke test.
-- If compilation or `flash-varlen` attention causes environment-specific
-  issues, remove the compile callback and/or switch the attention type in the
-  config.
+`fast_dev_run` is useful because it asks Lightning to run only a minimal train/validation loop while still checking config parsing, data loading, model forward, loss computation, and validation. `--trainer.logger=false` disables the logger, and `--trainer.callbacks=[]` clears configured callbacks so no callback expects logger or checkpoint state during the smoke test.
 
-For quick data compatibility debugging, the most useful knobs are:
+If you only want to disable logging without `fast_dev_run`, use:
+
+```shell
+--trainer.logger false
+```
+
+For small debug runs, these are usually the most useful knobs:
 
 ```shell
 --data.num_train 10
@@ -454,91 +193,137 @@ For quick data compatibility debugging, the most useful knobs are:
 --trainer.logger false
 ```
 
-## Saved Outputs
+## Logger Configuration
 
-In `fit` mode, the CLI rewrites `trainer.default_root_dir` into a timestamped
-run directory before classes are instantiated. With the default config:
+The default ATLAS config uses:
 
 ```yaml
-name: clic_v6
 trainer:
-  default_root_dir: logs
+  logger:
+    class_path: hepattn.experiments.atlas.logger_utils.FixedCometLogger
+    init_args:
+      project: hepattn-atlas
 ```
 
-the run directory will look like:
+With some installed Lightning/Comet versions, `project` is not accepted by `CometLogger`. If config parsing fails with an error like:
 
 ```text
-logs/clic_v6_YYYYMMDD-THHMMSS/
+Option 'project' is not accepted
+Parser key "trainer.logger" does not validate
 ```
 
-The path is resolved relative to the directory where the command is launched.
-If you run from `src/hepattn/experiments/clic`, the outputs are under
-`src/hepattn/experiments/clic/logs/...`. If you run from the repository root,
-they are under `logs/...`.
+then either disable logging for the run:
 
-The local fit outputs include:
+```shell
+--trainer.logger false
+```
+
+or update the config to use:
+
+```yaml
+trainer:
+  logger:
+    class_path: hepattn.experiments.atlas.logger_utils.FixedCometLogger
+    init_args:
+      project_name: hepattn-atlas
+```
+
+## Full Training
+
+After the dry-run passes, launch training with the full config:
+
+```shell
+cd src/hepattn/experiments/atlas
+python main.py fit -c configs/base.yaml
+```
+
+Common overrides:
+
+```shell
+python main.py fit \
+  -c configs/base.yaml \
+  --trainer.devices 1 \
+  --trainer.precision bf16-mixed \
+  --data.batch_size 64
+```
+
+Resume from a checkpoint:
+
+```shell
+python main.py fit \
+  -c configs/base.yaml \
+  --ckpt_path /path/to/checkpoint.ckpt
+```
+
+## Saved Outputs
+
+In `fit` mode, the custom CLI rewrites `trainer.default_root_dir` into a timestamped run directory:
 
 ```text
-logs/clic_v6_YYYYMMDD-THHMMSS/config.yaml
-logs/clic_v6_YYYYMMDD-THHMMSS/metadata.yaml
-logs/clic_v6_YYYYMMDD-THHMMSS/ckpts/*.ckpt
+<default_root_dir>/<name>_YYYYMMDD-THHMMSS/
 ```
 
-`config.yaml` is the saved Lightning CLI configuration for the run.
-`metadata.yaml` is written by `hepattn.callbacks.SaveConfig` and includes
-dataset sizes, batch size, trainable parameter count, GPU info, package
-versions, hostname, output directory, and logger URL when available.
+For example, with:
 
-Checkpoints are written by `hepattn.callbacks.Checkpoint` to the `ckpts/`
-subdirectory. The filenames include epoch and monitored validation loss, for
-example:
+```yaml
+name: atlas_run4_jz1234_v1
+trainer:
+  default_root_dir: /home/lclissa/projects/hepattn/experiments/dryrun
+```
+
+the run directory looks like:
+
+```text
+/home/lclissa/projects/hepattn/experiments/dryrun/atlas_run4_jz1234_v1_YYYYMMDD-THHMMSS/
+```
+
+Local outputs include:
+
+```text
+<run_dir>/config.yaml
+<run_dir>/metadata.yaml
+<run_dir>/ckpts/*.ckpt
+```
+
+`metadata.yaml` is written by `hepattn.callbacks.SaveConfig`. Checkpoints are written by `hepattn.callbacks.Checkpoint` under `ckpts/`; filenames include the epoch and validation loss, for example:
 
 ```text
 ckpts/epoch=003-val_loss=4.12345.ckpt
 ```
 
-The callback monitors:
+## Testing And Prediction Outputs
 
-```yaml
-monitor: val/loss
+Testing uses the `test` subcommand:
+
+```shell
+python main.py test \
+  -c /path/to/saved/config.yaml \
+  --ckpt_path /path/to/checkpoint.ckpt \
+  --data.test_path /path/to/test.root
 ```
 
-and is configured with `save_top_k=-1` internally, so it saves every monitored
-checkpoint rather than only the best one. Although `base.yaml` sets
-`save_last: true`, this custom callback sets `self.save_last = False` during
-setup.
+For inference-style evaluation, set:
 
-Metrics are logged through the configured Lightning logger. The default config
-uses `lightning.pytorch.loggers.CometLogger` with project `hepattn-clic`, so
-train/validation losses, task metrics, hyperparameters, metadata, code assets,
-and model checkpoints are sent to Comet when the logger is enabled and
-configured. Local metric files are not explicitly written by this code path
-unless the active Lightning logger does so.
+```shell
+--data.is_inference true
+```
 
-In `test` mode, the CLIC `PflowPredictionWriter` writes prediction outputs next
-to the checkpoint being evaluated:
+or use the inference configs if appropriate:
+
+```shell
+python main.py test \
+  -c configs/base_inference.yaml \
+  -c configs/inference_override.yaml \
+  --ckpt_path /path/to/checkpoint.ckpt
+```
+
+In `test` mode, `PflowPredictionWriter` saves predictions next to the checkpoint:
 
 ```text
 <checkpoint_dir>/<checkpoint_name>__test.h5
 <checkpoint_dir>/<checkpoint_name>__test.root
 ```
 
-If `data.test_suff` is set, it is inserted into the output filename.
+If `data.test_suff` is set, it is inserted into the filename.
 
-## Evaluation Notes
-
-The CLIC README recommends special flags for real performance evaluation in
-`test` mode:
-
-```shell
-python main.py test \
-  -c <path to config.yaml> \
-  --data.test_path test_clic_common_infer.root \
-  --data.is_inference true \
-  --trainer.precision 32-true \
-  --matmul_precision highest
-```
-
-That is separate from `fit` mode, but relevant when moving from a smoke test to
-real evaluation. The README also notes that evaluation may require changing the
-attention type to `torch` and removing the compile callback.
+When `--ckpt_path` is omitted in `test` mode, the CLI searches the config directory's `ckpts/` folder and picks the checkpoint with the lowest loss value parsed from the filename.
