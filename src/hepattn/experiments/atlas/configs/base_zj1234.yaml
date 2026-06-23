@@ -1,4 +1,4 @@
-name: atlas_jz134_v10_nopart
+name: atlas_jz1234_v10_nopart
 seed_everything: 20260619
 
 data:
@@ -26,12 +26,12 @@ data:
   # train_path: /storage/agrp/dreyet/FullEventReco/HGPflow_ATLAS/data/dijet_JZ1_to_JZ8_Jan2026/train_1M/train_jz123_bw0.4.root
   # valid_path: /storage/agrp/dreyet/FullEventReco/HGPflow_ATLAS/data/dijet_JZ1_to_JZ8_Jan2026/val_12k/val_jz123_bw0.4.root
   # test_path: /storage/agrp/dreyet/FullEventReco/HGPflow_ATLAS/data/dijet_JZ1_to_JZ8_Jan2026/test_60k/jz1_user.edreyer.42822922._000003.mltree_seg_bw0.4.root
-  train_path: /fast_scratch_4/atlas/pflow/0pileup_JZ1-4_Run4_AOD_samples/partitions/GLOW/data/dijet_JZ1234_June2026_2000/JZ134_train.root
-  valid_path: /fast_scratch_4/atlas/pflow/0pileup_JZ1-4_Run4_AOD_samples/partitions/GLOW/data/dijet_JZ1234_June2026_2000/JZ134_val.root
-  test_path: /fast_scratch_4/atlas/pflow/0pileup_JZ1-4_Run4_AOD_samples/partitions/GLOW/data/dijet_JZ1234_June2026_2000/JZ134_test.root
+  train_path: /fast_scratch_4/atlas/pflow/0pileup_JZ1-4_Run4_AOD_samples/partitions/GLOW/data/dijet_JZ1234_June2026_2000/JZ1234_train.root
+  valid_path: /fast_scratch_4/atlas/pflow/0pileup_JZ1-4_Run4_AOD_samples/partitions/GLOW/data/dijet_JZ1234_June2026_2000/JZ1234_val.root
+  test_path: /fast_scratch_4/atlas/pflow/0pileup_JZ1-4_Run4_AOD_samples/partitions/GLOW/data/dijet_JZ1234_June2026_2000/JZ1234_test.root
 
 
-  num_workers: 4
+  num_workers: 16
   num_train: -1
   num_test: -1
   num_val: -1
@@ -44,11 +44,11 @@ data:
 trainer:
   max_epochs: 10
   accelerator: gpu
-  devices: 1
+  devices: 4
   precision: bf16-mixed
   gradient_clip_val: 0.1
   log_every_n_steps: 50
-  default_root_dir: /home/lclissa/projects/hepattn/experiments/jz134_v0
+  default_root_dir: /home/lclissa/projects/hepattn/experiments/jz1234_v0
   enable_progress_bar: True
 
   logger:
