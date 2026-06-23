@@ -153,6 +153,7 @@ site/
 .cache
 pytest-temp
 /vendor
+scratch/ 
 
 # NFS
 *.nfs*
