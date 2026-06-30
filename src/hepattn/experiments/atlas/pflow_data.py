@@ -1,6 +1,6 @@
 import gc
-from pathlib import Path
 import time
+from pathlib import Path
 
 import lightning as L
 import numpy as np
@@ -104,7 +104,7 @@ class ATLASDataset(Dataset):
         arrays = {var: np.concatenate(chunks[var]) for var in all_branches}
         del chunks
         load_time = time.time() - time1
-        print(f"    Loaded {self.num_events} events and {len(varlist)+len(self.aux_vars)} variables in {load_time:.2f} seconds")
+        print(f"    Loaded {self.num_events} events and {len(varlist) + len(self.aux_vars)} variables in {load_time:.2f} seconds")
 
         for var in tqdm(varlist):
             self.full_data_array[var] = arrays[var]
