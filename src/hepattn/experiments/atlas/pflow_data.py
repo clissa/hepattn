@@ -6,7 +6,6 @@ import lightning as L
 import numpy as np
 import torch
 import uproot
-from lightning import seed_everything
 from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
 
@@ -42,12 +41,9 @@ class ATLASDataset(Dataset):
         incidence_cutval: float = 1e-4,
         is_inference: bool = False,
         dummy_data: bool = False,
+        dummy_seed: int = 42,
     ):
         super().__init__()
-
-        self.sampling_seed = 42
-        np.random.default_rng(self.sampling_seed)
-        seed_everything(self.sampling_seed, workers=True)
 
         self.scaler = FeatureScaler(scale_dict_path)
 
@@ -71,6 +67,7 @@ class ATLASDataset(Dataset):
         self.is_inference = is_inference
 
         if dummy_data:
+            self.dummy_seed = dummy_seed
             print(f"Creating ATLAS dataset with dummy data and {num_events} samples")
             self.num_events = num_events if num_events > 0 else 1000
             return
@@ -456,38 +453,38 @@ class ATLASDataset(Dataset):
 
     def _generate_dummy_data(self, idx):
         """Generate dummy data with the same structure as real data."""
-        torch.manual_seed(idx + self.sampling_seed)  # Ensure reproducible dummy data
+        generator = torch.Generator().manual_seed(idx + self.dummy_seed)
 
         # Generate random numbers of nodes and particles (within reasonable bounds)
-        n_nodes = torch.randint(50, self.max_nodes, (1,)).item()
-        n_particles = torch.randint(10, self.num_objects, (1,)).item()
+        n_nodes = torch.randint(50, self.max_nodes, (1,), generator=generator).item()
+        n_particles = torch.randint(10, self.num_objects, (1,), generator=generator).item()
 
         # Create dummy inputs
         inputs = {
-            "node_features": torch.randn(self.max_nodes, 27),
+            "node_features": torch.randn(self.max_nodes, 27, generator=generator),
             "node_valid": torch.zeros(self.max_nodes, dtype=torch.bool),
             "node_e": torch.zeros(self.max_nodes, dtype=torch.float32),
             "node_pt": torch.zeros(self.max_nodes, dtype=torch.float32),
-            "node_eta": torch.randn(self.max_nodes),
-            "node_phi": torch.randn(self.max_nodes),
-            "node_sinphi": torch.randn(self.max_nodes),
-            "node_cosphi": torch.randn(self.max_nodes),
+            "node_eta": torch.randn(self.max_nodes, generator=generator),
+            "node_phi": torch.randn(self.max_nodes, generator=generator),
+            "node_sinphi": torch.randn(self.max_nodes, generator=generator),
+            "node_cosphi": torch.randn(self.max_nodes, generator=generator),
             "node_is_track": torch.zeros(self.max_nodes, dtype=torch.float32),
         }
 
         # Set valid nodes
         inputs["node_valid"][:n_nodes] = True
-        inputs["node_e"][:n_nodes] = torch.rand(n_nodes) * 100  # Random energies
-        inputs["node_pt"][:n_nodes] = torch.rand(n_nodes) * 50  # Random pt
+        inputs["node_e"][:n_nodes] = torch.rand(n_nodes, generator=generator) * 100  # Random energies
+        inputs["node_pt"][:n_nodes] = torch.rand(n_nodes, generator=generator) * 50  # Random pt
         inputs["node_is_track"][: n_nodes // 2] = 1.0  # Half are tracks
 
         # Create dummy labels
         labels = {
-            "particle_class": torch.randint(0, 5, (self.num_objects,), dtype=torch.long),
+            "particle_class": torch.randint(0, 5, (self.num_objects,), dtype=torch.long, generator=generator),
             "particle_valid": torch.zeros(self.num_objects, dtype=torch.bool),
             "node_valid": inputs["node_valid"].clone(),
-            "particle_node_valid": torch.rand(self.num_objects, self.max_nodes) > 0.8,
-            "particle_incidence": torch.rand(self.num_objects, self.max_nodes),
+            "particle_node_valid": torch.rand(self.num_objects, self.max_nodes, generator=generator) > 0.8,
+            "particle_incidence": torch.rand(self.num_objects, self.max_nodes, generator=generator),
             "event_number": torch.tensor(idx, dtype=torch.int64),
             "mc_channel_number": torch.tensor(0, dtype=torch.int64),
         }
@@ -500,7 +497,7 @@ class ATLASDataset(Dataset):
         if hasattr(self, "targets") and "particle" in self.targets:
             for label in self.targets["particle"]:
                 tgt = torch.full((self.num_objects,), torch.nan)
-                tgt[:n_particles] = torch.randn(n_particles)  # Random regression targets
+                tgt[:n_particles] = torch.randn(n_particles, generator=generator)  # Random regression targets
                 labels[f"particle_{label}"] = tgt
 
         return inputs, labels
