@@ -1,386 +1,350 @@
-from copy import deepcopy
-from dataclasses import dataclass
-from enum import Enum
-from pathlib import Path
-from typing import Self
-
 import numpy as np
-import yaml
+import awkward as ak
 from tqdm import tqdm
-
 from .jet_helper import JetHelper, compute_jets
-from .matching import match_jets_all_ev, match_particles_all_ev
-from .reader import (
-    load_hgpflow_target,
-    load_pred_hgpflow,
-    load_pred_mlpf,
-    load_pred_mpflow,
-    load_truth_clic,
-)
+from .cheap_jet import CheapJet
+from .reader import load_predictions, load_target, load_truth_atlas
+from scipy.optimize import linear_sum_assignment
+from .utils import deltaR, delta_r
 
 
-class NetworkType(Enum):
-    EMPTOP = "emtopo"
-    EMPFLOW = "empflow"
-    HGPFLOW = "hgpflow"
-    HGPFLOW_PROXY = "hgpflow_proxy"
-    HGPFLOW_TARGET = "hgpflow_target"
-    MPFLOW = "mpflow"
-    MPFLOW_PROXY = "mpflow_proxy"
+class PerformanceATLAS:
+    
+    def __init__(self, truth_path, pred_paths, ind_threshold, topo=False, proxy=False,
+            target_path=None, fiducial_cuts_on_truth=False, load_hung_matched_truth=False, event_numbers=None,
+            load_truth=True, num_workers=32, entry_stop=None):
+
+        self.topo = topo
+        self.proxy = proxy
+    
+        if isinstance(pred_paths, str):
+            pred_paths = {'hgpflow': pred_paths}
+        elif not isinstance(pred_paths, dict):
+            raise ValueError("pred_paths should be string or dict of model_name: path")
+
+        self.pred_dicts = {}
+        for model, path in pred_paths.items():
+            self.pred_dicts[model] = load_predictions(
+                    path, threshold=ind_threshold, load_hung_matched_truth=load_hung_matched_truth,
+                    model_name=model, num_workers=num_workers, entry_stop=entry_stop
+                )
+
+        self.target_dict = None
+        if not target_path is None:
+            self.target_dict = load_target(target_path)
+
+        if isinstance(truth_path, dict):
+            self.truth_dict = truth_path
+        elif load_truth:
+            self.truth_dict = load_truth_atlas(truth_path, topo=topo, fiducial_cuts=fiducial_cuts_on_truth)
+        self.reorder_and_find_intersection(event_numbers)
 
 
-@dataclass
-class NetworkConfig:
-    name: str
-    path: str | Path
-    network_type: NetworkType
-    num_events: int | None = None
-    ind_threshold: float = 0.5
+    def reorder_and_find_intersection(self, event_numbers=None):
 
-    def __post_init__(self):
-        if isinstance(self.path, str):
-            self.path = Path(self.path)
-        if not self.path.exists():
-            raise FileNotFoundError(f"Network path {self.path} does not exist.")
-        if self.num_events is not None and self.num_events < 0:
-            raise ValueError("num_events must be a non-negative integer or None.")
+        ### check that event numbers are same in pred dicts
+        pred_event_numbers = None
+        for model_name, pred_dict in self.pred_dicts.items():
+            if pred_event_numbers is None:
+                pred_event_numbers = pred_dict['event_number']
+            else:
+                pred_event_numbers = np.intersect1d(pred_event_numbers, pred_dict['event_number'])
 
-    @classmethod
-    def from_dict(cls, data: dict) -> Self:
-        return cls(
-            name=data["name"],
-            path=data["path"],
-            network_type=NetworkType(data["network_type"]),
-            num_events=data.get("num_events"),
-            ind_threshold=data.get("ind_threshold", 0.5),
-        )
+        self.common_event_numbers = np.intersect1d(
+            self.truth_dict['event_number'], pred_event_numbers)
+        if not self.target_dict is None:
+            self.common_event_numbers = np.intersect1d(
+                self.common_event_numbers, self.target_dict['event_number'])
+        if event_numbers is not None:
+            self.common_event_numbers = np.intersect1d(self.common_event_numbers, event_numbers)
 
-
-@dataclass
-class PerformanceConfig:
-    truth_path: str | Path
-    networks: list[NetworkConfig]
-
-    def __post_init__(self):
-        if isinstance(self.truth_path, str):
-            self.truth_path = Path(self.truth_path)
-        if not self.truth_path.exists():
-            raise FileNotFoundError(f"Truth path {self.truth_path} does not exist.")
-
-    @classmethod
-    def from_dict(cls, data: dict) -> Self:
-        networks = [NetworkConfig.from_dict(net) for net in data["networks"]]
-        return cls(
-            truth_path=data["truth_path"],
-            networks=networks,
-        )
-
-    @classmethod
-    def from_yaml(cls, yaml_path: str | Path) -> Self:
-        if isinstance(yaml_path, str):
-            yaml_path = Path(yaml_path)
-        if not yaml_path.exists():
-            raise FileNotFoundError(f"YAML configuration file {yaml_path} does not exist.")
-        with yaml_path.open() as file:
-            data = yaml.safe_load(file)
-        return cls.from_dict(data)
-
-
-class Performance:
-    def __init__(
-        self,
-        config: PerformanceConfig,
-    ):
-        self.config = deepcopy(config)
-        self.truth_dict, pandora_dict = load_truth_clic(config.truth_path)
-        self.data = {}
-
-        for net_config in config.networks:
-            net_name = net_config.name
-            pred_path = net_config.path
-            num_events = net_config.num_events
-            match net_config.network_type:
-                case NetworkType.HGPFLOW | NetworkType.HGPFLOW_PROXY:
-                    self.data[net_name] = load_pred_hgpflow(
-                        pred_path,
-                        threshold=net_config.ind_threshold,
-                        num_events=num_events,
-                        return_proxy=net_config.network_type == NetworkType.HGPFLOW_PROXY,
-                    )
-                case NetworkType.HGPFLOW_TARGET:
-                    self.data[net_name] = load_hgpflow_target(
-                        pred_path,
-                        threshold=net_config.ind_threshold,
-                        num_events=num_events,
-                    )
-                case NetworkType.MLPLF:
-                    self.data[net_name] = load_pred_mlpf(
-                        pred_path,
-                    )
-                case NetworkType.MPFLOW | NetworkType.MPFLOW_PROXY:
-                    self.data[net_name] = load_pred_mpflow(
-                        pred_path,
-                        threshold=net_config.ind_threshold,
-                        num_events=num_events,
-                        return_proxy=net_config.network_type == NetworkType.MPFLOW_PROXY,
-                    )
-        # HACK: add pandora dict to data and network configs  # noqa: FIX004
-        self.data["pandora"] = pandora_dict
-        self.config.networks.append(
-            NetworkConfig(
-                name="pandora",
-                path=config.truth_path,
-                network_type=NetworkType.PANDORA,
-            )
-        )
-
-        self.network_names = [net.name for net in self.config.networks]
-        # Initialize flags
-        self._events_reordered: bool
-        self._jets_computed: bool
-        self._jets_matched: bool
-        self._particles_matched: bool
-        self.n_events: int = 0
-        self.reset()
-
-    def reset(self):
-        self._events_reordered = False
-        self._jets_computed = False
-        self._jets_matched = False
-        self._particles_matched = False
-
-    def reorder_and_find_intersection(self):
-        self.common_event_numbers = self.truth_dict["event_number"]
-        for net_dict in self.data.values():
-            self.common_event_numbers = np.intersect1d(self.common_event_numbers, net_dict["event_number"])
-
-        print("common event count:", len(self.common_event_numbers))
+        print('common event count:', len(self.common_event_numbers))
 
         # order them according to truth (we don't need to order self.truth_dict then)
-        truth_mask = np.isin(self.truth_dict["event_number"], self.common_event_numbers)
-        self.common_event_numbers = self.truth_dict["event_number"][truth_mask]
-
+        truth_mask = np.isin(self.truth_dict['event_number'], self.common_event_numbers)
+        self.common_event_numbers = self.truth_dict['event_number'][truth_mask]
+        
         # filter truth
-        mask = np.isin(self.truth_dict["event_number"], self.common_event_numbers)
+        mask = np.isin(self.truth_dict['event_number'], self.common_event_numbers)
         if not mask.all():
-            for var in tqdm(
-                self.truth_dict.keys(),
-                desc="Filtering truth...",
-                total=len(self.truth_dict.keys()),
-            ):
+            for var in tqdm(self.truth_dict.keys(), desc="Filtering truth...", total=len(self.truth_dict.keys())):
                 self.truth_dict[var] = self.truth_dict[var][mask]
 
-        # filter and reorder networks
-        for net_name, net_dict in self.data.items():
-            positions = np.array([np.where(net_dict["event_number"] == x)[0][0] for x in self.common_event_numbers]).astype(int)
-            for var in tqdm(
-                net_dict.keys(),
-                desc=f"Filtering and reordering {net_name}...",
-                total=len(net_dict.keys()),
-            ):
-                net_dict[var] = net_dict[var][positions]
-        self.n_events = len(self.common_event_numbers)
-        self._events_reordered = True
+        # filter and reorder predictions
+        for model_name, pred_dict in self.pred_dicts.items():
+            positions = np.array([
+                np.where(pred_dict['event_number'] == x)[0][0] for x in self.common_event_numbers]).astype(int)
+            for var in tqdm(pred_dict.keys(), desc=f"Filtering and reordering {model_name} predictions...", total=len(pred_dict.keys())):
+                pred_dict[var] = pred_dict[var][positions]
+        # filter and reorder targets
+        if not self.target_dict is None:
+            positions = np.array([
+                np.where(self.target_dict['event_number'] == x)[0][0] for x in self.common_event_numbers]).astype(int)
+            for var in tqdm(self.target_dict.keys(), desc="Filtering and reordering targets...", total=len(self.target_dict.keys())):
+                self.target_dict[var] = self.target_dict[var][positions]
 
-    def compute(self):
-        """Compute jets, match jets, and compute event features."""
-        assert self._events_reordered, "Events must be reordered before computing jets."
-        self.compute_jets()
-        self.hung_match_jets()
-        self.hung_match_particles(flatten=True, return_unmatched=False)
-        self.compute_event_features()
-        self.compute_jet_res_features()
 
-    def compute_jets(self, radius=0.7, algo="genkt", n_procs=0):
-        assert self._events_reordered, "Events must be reordered before computing jets."
+    def compute_jets(self, radius=0.4, algo='antikt', n_procs=0, predictions_only=False, add_keys=None):
         jet_obj = JetHelper(radius=radius, algo=algo)
+        
+        if not predictions_only:
+            # print('truth')
+            # truth_mask = (self.truth_dict['particle_gen_status'] == 1)
+            # self.truth_dict['truth_jets'] = compute_jets(jet_obj, 
+            #     self.truth_dict['particle_pt'][truth_mask], self.truth_dict['particle_eta'][truth_mask],
+            #     self.truth_dict['particle_phi'][truth_mask], self.truth_dict['particle_e'][truth_mask], 
+            #     fourth_name='E', n_procs=n_procs)
+            
+            if 'AntiKt4TruthJetsPt' in self.truth_dict:
+                print('AntiKt4TruthJets')
+                self.truth_dict['AntiKt4TruthJets'] = []
+                iter_obj = zip(self.truth_dict['AntiKt4TruthJetsPt'], self.truth_dict['AntiKt4TruthJetsEta'],
+                    self.truth_dict['AntiKt4TruthJetsPhi'], self.truth_dict['AntiKt4TruthJetsE'])
+                for pts, etas, phis, es in iter_obj:
+                    cheap_jets_ev = [CheapJet.alternate(pt, eta, phi, e=e, n_const=0) for pt, eta, phi, e in zip(pts, etas, phis, es)]
+                    self.truth_dict['AntiKt4TruthJets'].append(cheap_jets_ev)
+            
+            if 'AntiKt4EMPFlowJetsPt' in self.truth_dict:
+                print('AntiKt4EMPFlowJets')
+                self.truth_dict['AntiKt4EMPFlowJets'] = []
+                iter_obj = zip(self.truth_dict['AntiKt4EMPFlowJetsPt'], self.truth_dict['AntiKt4EMPFlowJetsEta'],
+                    self.truth_dict['AntiKt4EMPFlowJetsPhi'], self.truth_dict['AntiKt4EMPFlowJetsE']) #, self.truth_dict['AntiKt4EMPFlowJetsNConstituents'])
+                # for pts, etas, phis, es, nconsts in iter_obj:
+                for pts, etas, phis, es in iter_obj:
+                    # cheap_jets_ev = [CheapJet.alternate(pt, eta, phi, e=e, n_const=nconst) for pt, eta, phi, e, nconst in zip(pts, etas, phis, es, nconsts)]
+                    cheap_jets_ev = [CheapJet.alternate(pt, eta, phi, e=e, n_const=0) for pt, eta, phi, e in zip(pts, etas, phis, es)]
+                    self.truth_dict['AntiKt4EMPFlowJets'].append(cheap_jets_ev)
 
-        print("truth")
-        self.truth_dict["truth_jets"] = compute_jets(
-            jet_obj,
-            self.truth_dict["particle_pt"],
-            self.truth_dict["particle_eta"],
-            self.truth_dict["particle_phi"],
-            self.truth_dict["particle_e"],
-            fourth_name="E",
-            n_procs=n_procs,
-        )
+            if 'AntiKt4EMTopoJetsPt' in self.truth_dict:
+                print('AntiKt4EMTopoJets')
+                self.truth_dict['AntiKt4EMTopoJets'] = []
+                iter_obj = zip(self.truth_dict['AntiKt4EMTopoJetsPt'], self.truth_dict['AntiKt4EMTopoJetsEta'],
+                    self.truth_dict['AntiKt4EMTopoJetsPhi'], self.truth_dict['AntiKt4EMTopoJetsE'])
+                for pts, etas, phis, es in iter_obj:
+                    cheap_jets_ev = [CheapJet.alternate(pt, eta, phi, e=e, n_const=0) for pt, eta, phi, e in zip(pts, etas, phis, es)]
+                    self.truth_dict['AntiKt4EMTopoJets'].append(cheap_jets_ev)
+            
+        for model_name, pred_dict in self.pred_dicts.items():
+            print(model_name)
 
-        for net_config in self.config.networks:
-            net_name = net_config.name
-            net_dict = self.data[net_name]
-            net_type = net_config.network_type
-            print(f"Computing jets for {net_name}...")
-            kwargs = {}
-            if net_type == NetworkType.PANDORA:
-                kwargs["fourths"] = net_dict["e"]
-                kwargs["fourth_name"] = "E"
-            else:
-                kwargs["fourths"] = net_dict["mass"]
-                kwargs["fourth_name"] = "mass"
-            net_dict["jets"] = compute_jets(
-                jet_obj,
-                net_dict["pt"],
-                net_dict["eta"],
-                net_dict["phi"],
-                n_procs=n_procs,
-                **kwargs,
-            )
-        self._jets_computed = True
+            pred_dict['jets'] = compute_jets(jet_obj, 
+                pred_dict[f'{model_name}_pt'], pred_dict[f'{model_name}_eta'],
+                pred_dict[f'{model_name}_phi'], pred_dict[f'{model_name}_mass'],
+                fourth_name='mass', n_procs=n_procs)
 
-    def hung_match_jets(
-        self,
-    ):
-        """Match truth jets with the PF jets."""
-        assert self._jets_computed, "Jets must be computed before matching."
+            if self.proxy:
+                print(f'{model_name} proxy')
+                pred_dict['proxy_jets'] = compute_jets(jet_obj,
+                    pred_dict['proxy_pt'], pred_dict['proxy_eta'],
+                    pred_dict['proxy_phi'], pred_dict[f'{model_name}_mass'],
+                    fourth_name='mass', n_procs=n_procs)
+                
+            if not add_keys is None:
+                for key in add_keys:
+                    actual_key = f'{model_name}_{key}'
+                    print(f'{model_name} {key}')
+                    pred_dict[key + '_jets'] = compute_jets(jet_obj,
+                        pred_dict[f'{actual_key}_pt'], pred_dict[f'{actual_key}_eta'],
+                        pred_dict[f'{actual_key}_phi'], pred_dict[f'{model_name}_mass'],
+                        fourth_name='mass', n_procs=n_procs)
 
-        for net_dict in self.data.values():
-            net_dict["matched_jets"] = match_jets_all_ev(self.truth_dict["truth_jets"], net_dict["jets"])
-        self._jets_matched = True
+        if not self.target_dict is None:
+            print('target')
+            self.target_dict['jets'] = compute_jets(jet_obj, 
+                self.target_dict['particle_pt'], self.target_dict['particle_eta'],
+                self.target_dict['particle_phi'], self.target_dict['particle_mass'],
+                fourth_name='mass', n_procs=n_procs)
 
-    def hung_match_particles(self, flatten=False, return_unmatched=False):
-        """Match truth particles with the PF particles."""
-        assert self._events_reordered, "Events must be reordered before matching particles."
-        for net_config in self.config.networks:
-            net_name = net_config.name
-            net_dict = self.data[net_name]
-            net_dict["matched_particles"] = match_particles_all_ev(
-                (
-                    self.truth_dict["particle_pt"],
-                    self.truth_dict["particle_eta"],
-                    self.truth_dict["particle_phi"],
-                    self.truth_dict["particle_class"],
-                ),
-                (
-                    net_dict["pt"],
-                    net_dict["eta"],
-                    net_dict["phi"],
-                    net_dict["class"],
-                ),
-                flatten,
-                return_unmatched,
-            )
-        self._particles_matched = True
+        if self.topo:
+            print('topo')
+            self.truth_dict['topo_jets'] = compute_jets(jet_obj, 
+                self.truth_dict['topo_pt'], self.truth_dict['topo_eta'],
+                self.truth_dict['topo_phi'], self.truth_dict['topo_e'], 
+                fourth_name='E', n_procs=n_procs)
 
-    def compute_met_ht(self, pt, phi):
-        """Calculate missing transverse energy (MET) and total transverse energy (HT)."""
-        met_x = np.zeros(self.n_events)
-        met_y = np.zeros(self.n_events)
-        met = np.zeros(self.n_events)
-        ht = np.zeros(self.n_events)
-        for i in range(self.n_events):
-            met_x[i] = -np.sum(pt[i] * np.cos(phi[i]))
-            met_y[i] = -np.sum(pt[i] * np.sin(phi[i]))
-            met[i] = np.sqrt(met_x[i] ** 2 + met_y[i] ** 2)
-            ht[i] = np.sum(pt[i])
-        return met_x, met_y, met, ht
 
-    def compute_nconst(self, particle_class):
-        """Calculate the number of constituents."""
-        nconst_ch = np.zeros(self.n_events)
-        nconst_neut = np.zeros(self.n_events)
-        for i in range(self.n_events):
-            nconst_ch[i] = np.sum(particle_class[i] <= 2)  # charged particles
-            nconst_neut[i] = np.sum(particle_class[i] > 2)  # neutral particles
-        return nconst_ch, nconst_neut
+    def match_jets_single_ev(self, ref_jets, comp_jets):
+        n_ref_jets = len(ref_jets)
+        n_comp_jets = len(comp_jets)
 
-    def compute_event_features(self):
-        """Calculate event features."""
-        assert self._events_reordered, "Events must be reordered before calculating event features."
-        # Truth features
-        truth_met_x, truth_met_y, truth_met, truth_ht = self.compute_met_ht(
-            self.truth_dict["particle_pt"],
-            self.truth_dict["particle_phi"],
-        )
-        truth_nconst_ch, truth_nconst_neut = self.compute_nconst(self.truth_dict["particle_class"])
-        self.truth_dict["met_x"] = truth_met_x
-        self.truth_dict["met_y"] = truth_met_y
-        self.truth_dict["met"] = truth_met
-        self.truth_dict["ht"] = truth_ht
-        self.truth_dict["nconst_ch"] = truth_nconst_ch
-        self.truth_dict["nconst_neut"] = truth_nconst_neut
+        if n_ref_jets == 0 or n_comp_jets == 0:
+            return [[],[]]
+        
+        dR_matrix = np.zeros((n_ref_jets, n_comp_jets))
+        for i in range(n_ref_jets):
+            for j in range(n_comp_jets):
+                dR_matrix[i, j] = ref_jets[i].delta_R(comp_jets[j])
 
-        # Networks features
-        for net_config in self.config.networks:
-            net_name = net_config.name
-            met_x, met_y, met, ht = self.compute_met_ht(
-                self.data[net_name]["pt"],
-                self.data[net_name]["phi"],
-            )
-            nconst_ch, nconst_neut = self.compute_nconst(self.data[net_name]["class"])
-            self.data[net_name]["met_x"] = met_x
-            self.data[net_name]["met_y"] = met_y
-            self.data[net_name]["met"] = met
-            self.data[net_name]["ht"] = ht
-            self.data[net_name]["nconst_ch"] = nconst_ch
-            self.data[net_name]["nconst_neut"] = nconst_neut
-            for var in ["met_x", "met_y", "met", "ht", "nconst_ch", "nconst_neut"]:
-                if var in {"nconst_ch", "nconst_neut"}:
-                    self.data[net_name][f"{var}_res"] = self.data[net_name][var] - self.truth_dict[var]
-                else:
-                    self.data[net_name][f"{var}_res"] = (self.data[net_name][var] - self.truth_dict[var]) / (
-                        self.truth_dict[var] + 1e-8
-                    )  # Avoid division by zero
+        row_indices, col_indices = linear_sum_assignment(dR_matrix, maximize=False)
+        ref_jets_matched = [ref_jets[i] for i in row_indices]
+        comp_jets_matched = [comp_jets[i] for i in col_indices]
 
-    def compute_jet_residual_dict(self, ref_jets, reco_jets, dr_cut=0.1, leading_n_jets=999, pt_min=10, eta_max=2.5):
-        """Args:
-        matched_jets: {name: (truth, reco), ...].
-        """
-        residual_dict = {
-            "pt": [],
-            "pt_rel": [],
-            "eta": [],
-            "phi": [],
-            "dR": [],
-            "ref_pt": [],
-            "ref_eta": [],
-            "nconst": [],
-            "e": [],
-            "e_rel": [],
-            "ref_e": [],
-        }
-        ref_count = 0
-        matched_count = 0
-        for ev_i in range(len(ref_jets)):
-            ref_jets_ev, reco_jets_ev = ref_jets[ev_i], reco_jets[ev_i]
-            for j_i, (ref_j, reco_j) in enumerate(zip(ref_jets_ev, reco_jets_ev, strict=False)):
-                dr = ref_j.delta_r(reco_j)
-                if dr < dr_cut and ref_j.pt > pt_min and abs(ref_j.eta) < eta_max:
-                    residual_dict["pt"].append(reco_j.pt - ref_j.pt)
-                    residual_dict["pt_rel"].append(residual_dict["pt"][-1] / ref_j.pt)
-                    residual_dict["e"].append(reco_j.e - ref_j.e)
-                    residual_dict["e_rel"].append(residual_dict["e"][-1] / ref_j.e)
-                    residual_dict["eta"].append(reco_j.eta - ref_j.eta)
-                    residual_dict["phi"].append(reco_j.phi - ref_j.phi)
-                    residual_dict["dR"].append(dr)
-                    residual_dict["ref_pt"].append(ref_j.pt)
-                    residual_dict["ref_eta"].append(ref_j.eta)
-                    residual_dict["ref_e"].append(ref_j.e)
-                    residual_dict["nconst"].append(reco_j.n_constituents - ref_j.n_constituents)
-                    matched_count += 1
-                ref_count += 1
+        # sort both by pt of ref_jet
+        sorted_idx = np.argsort([j.pt for j in ref_jets_matched])[::-1]
+        ref_jets_matched = [ref_jets_matched[i] for i in sorted_idx]
+        comp_jets_matched = [comp_jets_matched[i] for i in sorted_idx]
 
-                if j_i == leading_n_jets - 1:
-                    break
+        return ref_jets_matched, comp_jets_matched
 
-        f_matched = matched_count / ref_count
-        residual_dict["f_matched"] = f_matched
 
-        for var in residual_dict:
-            residual_dict[var] = np.array(residual_dict[var])
+    def match_jets_all_ev(self, ref_jets, comp_jets):
+        ref_jets_matched, comp_jets_matched = [], []
+        for ev_i, (ref_jets_ev, comp_jets_ev) in enumerate(tqdm(zip(ref_jets, comp_jets), total=len(ref_jets), desc='Matching jets...')):
+            ref_jets_ev_matched, comp_jets_ev_matched = self.match_jets_single_ev(ref_jets_ev, comp_jets_ev)
+            ref_jets_matched.append(ref_jets_ev_matched)
+            comp_jets_matched.append(comp_jets_ev_matched)
 
-        return residual_dict
+        return ref_jets_matched, comp_jets_matched
 
-    def compute_jet_res_features(self, dr_cut=0.1, leading_n_jets=999, pt_min=10, eta_max=2.5):
-        assert self._jets_matched, "Jets must be matched before computing residuals."
-        """Calculate jet residual features."""
-        for net in self.config.networks:
-            net_name = net.name
-            self.data[net_name]["jet_residuals"] = self.compute_jet_residual_dict(
-                self.data[net_name]["matched_jets"][0],
-                self.data[net_name]["matched_jets"][1],
-                dr_cut=dr_cut,
-                leading_n_jets=leading_n_jets,
-                pt_min=pt_min,
-                eta_max=eta_max,
-            )
+
+    def match_jets(self):
+        # if 'AntiKt4TruthJets' in self.truth_dict:
+        #     self.truth_dict['matched_truth_jets'] = self.match_jets_all_ev(
+        #         self.truth_dict['AntiKt4TruthJets'], self.truth_dict['truth_jets'])
+        
+        if 'AntiKt4EMPFlowJets' in self.truth_dict:
+            self.truth_dict['matched_AntiKt4EMPFlowJets'] = self.match_jets_all_ev(
+                self.truth_dict['AntiKt4TruthJets'], self.truth_dict['AntiKt4EMPFlowJets'])
+
+        if 'AntiKt4EMTopoJets' in self.truth_dict:
+            self.truth_dict['matched_AntiKt4EMTopoJets'] = self.match_jets_all_ev(
+                self.truth_dict['AntiKt4TruthJets'], self.truth_dict['AntiKt4EMTopoJets'])
+        
+        for model_name, pred_dict in self.pred_dicts.items():
+            pred_dict[f'matched_{model_name}_jets'] = self.match_jets_all_ev(
+                # self.truth_dict['truth_jets'], pred_dict['jets'])
+                self.truth_dict['AntiKt4TruthJets'], pred_dict['jets'])
+            
+            if self.proxy:
+                pred_dict['matched_proxy_jets'] = self.match_jets_all_ev(
+                    # self.truth_dict['truth_jets'], pred_dict['proxy_jets'])
+                    self.truth_dict['AntiKt4TruthJets'], pred_dict['proxy_jets'])
+
+        if not self.target_dict is None:
+            self.target_dict[f'matched_{self.model_name}_target_jets'] = self.match_jets_all_ev(
+                self.truth_dict['AntiKt4TruthJets'], self.target_dict['jets'])
+
+        if self.topo:
+            self.truth_dict['matched_topo_jets'] = self.match_jets_all_ev(
+                self.truth_dict['AntiKt4TruthJets'], self.truth_dict['topo_jets'])
+            
+
+    def hung_match_ev(self, ref_particles, comp_particles, return_unmatched=False, dR_threshold=None):
+        ref_pt, ref_eta, ref_phi, ref_cl = ref_particles
+        comp_pt, comp_eta, comp_phi, comp_cl = comp_particles
+
+        cost_delpt_sq = (
+            np.expand_dims(ref_pt, axis=1) - np.expand_dims(comp_pt, axis=0))**2
+        cost_delpt_sq_by_pt_sq = cost_delpt_sq / np.expand_dims(ref_pt, axis=1)**2
+        cost_deltaR = delta_r( # deltaR(
+            np.expand_dims(ref_eta, axis=1), np.expand_dims(comp_eta, axis=0),
+            np.expand_dims(ref_phi, axis=1), np.expand_dims(comp_phi, axis=0))
+        cost = np.sqrt(cost_delpt_sq_by_pt_sq + cost_deltaR**2)
+
+        ref_ch_mask = (ref_cl <= 2); comp_ch_mask = (comp_cl <= 2)
+
+        # charged
+        masked_cost = cost[np.ix_(ref_ch_mask, comp_ch_mask)]
+        row_i, col_i = linear_sum_assignment(masked_cost, maximize=False)
+        row_indices = np.arange(len(ref_pt))[ref_ch_mask][row_i]
+        col_indices = np.arange(len(comp_pt))[comp_ch_mask][col_i]
+
+        # neutral
+        masked_cost = cost[np.ix_(~ref_ch_mask, ~comp_ch_mask)]
+        row_i, col_i = linear_sum_assignment(masked_cost, maximize=False)
+        row_indices = np.concatenate([row_indices, np.arange(len(ref_pt))[~ref_ch_mask][row_i]])
+        col_indices = np.concatenate([col_indices, np.arange(len(comp_pt))[~comp_ch_mask][col_i]])
+
+        if not dR_threshold is None:
+            # apply hard cut on dR to flag unacceptable matches
+            valid_match_mask = cost_deltaR[row_indices, col_indices] < dR_threshold
+            row_indices = row_indices[valid_match_mask]
+            col_indices = col_indices[valid_match_mask]
+
+        ref_matched_dict = {
+            'pt': ref_pt[row_indices], 'eta': ref_eta[row_indices],
+            'phi': ref_phi[row_indices], 'class': ref_cl[row_indices]}
+        comp_matched_dict = {
+            'pt': comp_pt[col_indices], 'eta': comp_eta[col_indices],
+            'phi': comp_phi[col_indices], 'class': comp_cl[col_indices]}
+
+        ref_unmatched_dict = None; comp_unmatched_dict = None
+        if return_unmatched:
+            ref_unmatched_dict = {
+                'pt': np.delete(ref_pt, row_indices), 'eta': np.delete(ref_eta, row_indices),
+                'phi': np.delete(ref_phi, row_indices), 'class': np.delete(ref_cl, row_indices)}
+            comp_unmatched_dict = {
+                'pt': np.delete(comp_pt, col_indices), 'eta': np.delete(comp_eta, col_indices),
+                'phi': np.delete(comp_phi, col_indices), 'class': np.delete(comp_cl, col_indices)}
+        
+        return ref_matched_dict, comp_matched_dict, ref_unmatched_dict, comp_unmatched_dict
+
+
+
+    def hung_match_all_ev(self, ref_particles, comp_particles, flatten=False, return_unmatched=False, dR_threshold=None):
+        rp_pt, rp_eta, rp_phi, rp_cl = ref_particles
+        cp_pt, cp_eta, cp_phi, cp_cl = comp_particles
+
+        print('ak->np comversion...', end=' ')
+        rp_pt = [np.asarray(x) for x in rp_pt.tolist()]; rp_eta = [np.asarray(x) for x in rp_eta.tolist()]
+        rp_phi = [np.asarray(x) for x in rp_phi.tolist()]; rp_cl = [np.asarray(x) for x in rp_cl.tolist()]
+
+        cp_pt = [np.asarray(x) for x in cp_pt.tolist()]; cp_eta = [np.asarray(x) for x in cp_eta.tolist()]
+        cp_phi = [np.asarray(x) for x in cp_phi.tolist()]; cp_cl = [np.asarray(x) for x in cp_cl.tolist()]
+        print('done')
+
+        ref_particles_matched  = {'pt': [], 'eta': [], 'phi': [], 'class': []}
+        comp_particles_matched = {'pt': [], 'eta': [], 'phi': [], 'class': []}
+        ref_particles_unmatched  = {'pt': [], 'eta': [], 'phi': [], 'class': []}
+        comp_particles_unmatched = {'pt': [], 'eta': [], 'phi': [], 'class': []}
+
+        for i in tqdm(range(len(ref_particles[0])), desc='Matching particles...'):
+            ref_particles_ev_matched, comp_particles_ev_matched, \
+            ref_particles_ev_unmatched, comp_particles_ev_unmatched = \
+                self.hung_match_ev((rp_pt[i], rp_eta[i], rp_phi[i], rp_cl[i]),
+                    (cp_pt[i], cp_eta[i], cp_phi[i], cp_cl[i]), 
+                    return_unmatched=return_unmatched, dR_threshold=dR_threshold)
+            
+            for key in ref_particles_matched.keys():
+                ref_particles_matched[key].append(ref_particles_ev_matched[key])
+                comp_particles_matched[key].append(comp_particles_ev_matched[key])
+                if return_unmatched:
+                    ref_particles_unmatched[key].append(ref_particles_ev_unmatched[key])
+                    comp_particles_unmatched[key].append(comp_particles_ev_unmatched[key])
+
+        if flatten:
+            for key in ref_particles_matched.keys():
+                ref_particles_matched[key] = np.hstack(ref_particles_matched[key])
+                comp_particles_matched[key] = np.hstack(comp_particles_matched[key])
+                if return_unmatched:
+                    ref_particles_unmatched[key] = np.hstack(ref_particles_unmatched[key])
+                    comp_particles_unmatched[key] = np.hstack(comp_particles_unmatched[key])
+        
+        if return_unmatched:
+            return ref_particles_matched, comp_particles_matched, ref_particles_unmatched, comp_particles_unmatched
+        return ref_particles_matched, comp_particles_matched
+    
+
+    def hung_match_particles(self, flatten=False, return_unmatched=False, dR_threshold=None):
+
+        for model_name, pred_dict in self.pred_dicts.items():
+            pred_dict['matched_proxy_particles'] = self.hung_match_all_ev(
+                (self.truth_dict['particle_pt'], self.truth_dict['particle_eta'], 
+                self.truth_dict['particle_phi'], self.truth_dict['particle_class']),
+                (pred_dict['proxy_pt'], pred_dict['proxy_eta'], 
+                pred_dict['proxy_phi'], pred_dict[f'{model_name}_class']), 
+                flatten, return_unmatched, dR_threshold=dR_threshold)
+            pred_dict[f'matched_{model_name}_particles'] = self.hung_match_all_ev(
+                (self.truth_dict['particle_pt'], self.truth_dict['particle_eta'], 
+                self.truth_dict['particle_phi'], self.truth_dict['particle_class']),
+                (pred_dict[f'{model_name}_pt'], pred_dict[f'{model_name}_eta'], 
+                pred_dict[f'{model_name}_phi'], pred_dict[f'{model_name}_class']), 
+                flatten, return_unmatched, dR_threshold=dR_threshold)
+        if not self.target_dict is None:
+            self.target_dict[f'matched_target_particles'] = self.hung_match_all_ev(
+                (self.truth_dict['particle_pt'], self.truth_dict['particle_eta'], 
+                 self.truth_dict['particle_phi'], self.truth_dict['particle_class']),
+                (self.target_dict['particle_pt'], self.target_dict['particle_eta'], 
+                 self.target_dict['particle_phi'], self.target_dict['particle_pdgid']), 
+                 flatten, return_unmatched, dR_threshold=dR_threshold)
+        

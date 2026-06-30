@@ -1,69 +1,70 @@
 import numpy as np
+import matplotlib.pyplot as plt
 from matplotlib.colors import LinearSegmentedColormap
 
-from .style_sheet import ALPHAS, COLORS, HISTTYPES, LABEL_LEN, LABELS, LINE_STYLES
-
+from .style_sheet import LABELS, COLORS, HISTTYPES, ALPHAS, LINE_STYLES, LABEL_LEN, MARKERS
 
 def update_stylesheet(stylesheet):
     if stylesheet is None:
         stylesheet = {}
-    global COLORS, LABELS, HISTTYPES, ALPHAS, LINE_STYLES, LABEL_LEN
-    colors = stylesheet.get("COLORS", COLORS)
-    labels = stylesheet.get("LABELS", LABELS)
-    histtypes = stylesheet.get("HISTTYPES", HISTTYPES)
-    alphas = stylesheet.get("ALPHAS", ALPHAS)
-    line_styles = stylesheet.get("LINE_STYLES", LINE_STYLES)
-    label_len = stylesheet.get("LABEL_LEN", LABEL_LEN)
+    global COLORS, LABELS, HISTTYPES, ALPHAS, LINE_STYLES, LABEL_LEN, MARKERS
+    _COLORS = stylesheet.get('COLORS', COLORS)
+    _LABELS = stylesheet.get('LABELS', LABELS)
+    _HISTTYPES = stylesheet.get('HISTTYPES', HISTTYPES)
+    _ALPHAS = stylesheet.get('ALPHAS', ALPHAS)
+    _LINE_STYLES = stylesheet.get('LINE_STYLES', LINE_STYLES)
+    _LABEL_LEN = stylesheet.get('LABEL_LEN', LABEL_LEN)
+    _MARKERS = stylesheet.get('MARKERS', ['o']*len(_COLORS))
 
-    return colors, labels, histtypes, alphas, line_styles, label_len
+    return _COLORS, _LABELS, _HISTTYPES, _ALPHAS, _LINE_STYLES, _LABEL_LEN, _MARKERS
 
 
-def deltar(eta1, phi1, eta2, phi2):
+def deltaR(eta1, phi1, eta2, phi2):
     d_eta = eta1 - eta2
-    phi1, phi2 = (phi1 + np.pi) % (2 * np.pi) - np.pi, (phi2 + np.pi) % (2 * np.pi) - np.pi
-    d_phi = np.minimum(np.abs(phi1 - phi2), 2 * np.pi - np.abs(phi1 - phi2))
-    return np.sqrt(d_eta**2 + d_phi**2)
+    phi1, phi2 = (phi1+np.pi) % (2*np.pi) - np.pi, (phi2+np.pi) % (2*np.pi) - np.pi
+    d_phi = np.minimum(np.abs(phi1 - phi2), 2*np.pi - np.abs(phi1 - phi2))
+    dR = np.sqrt(d_eta**2 + d_phi**2)
+    return dR
 
 
-def get_invariant_mass(jets, option="two-jet"):
-    if option == "two-jet":
-        m = (jets[0].fj_jet + jets[1].fj_jet).m() if len(jets) >= 2 else -1
-    elif option == "one-jet":
-        m = jets[0].m() if len(jets) >= 1 else -1
+def get_invariant_mass(jets, option='two-jet'):
+    if option == 'two-jet':
+        if len(jets) >= 2:
+            m = (jets[0].fj_jet + jets[1].fj_jet).m()
+        else:
+            m = -1
+    elif option == 'one-jet':
+        if len(jets) >= 1:
+            m = jets[0].m()
+        else:
+            m = -1
     return m
 
 
 def gaussian(x, amplitude, mean, stddev):
-    return amplitude * np.exp(-(((x - mean) / stddev) ** 2) / 2)
+    return amplitude * np.exp(-((x - mean) / stddev) ** 2 / 2)
 
 
-def custom_hist_v1(ax, vals, label_length=-1, metrics="mean std iqr", f=None, **hist_kwargs):  # noqa: ARG001
-    bins = hist_kwargs["bins"]
-    vals = np.clip(vals, bins[0], bins[-1])
-
+def custom_hist_v1(ax, vals, label_length=-1, metrics="mean std iqr", f=None, **hist_kwargs):
     if label_length != -1:
-        hist_kwargs["label"] = hist_kwargs["label"].ljust(label_length)
+        hist_kwargs['label'] = hist_kwargs['label'].ljust(label_length)
 
-    hist_kwargs["label"] += f" (M={np.nanmedian(vals):+.3f},".replace("+", " ")
+    hist_kwargs['label'] += f' (M={np.nanmedian(vals):+.3f},'.replace('+', ' ')
     iqr = np.nanpercentile(vals, 75) - np.nanpercentile(vals, 25)
-    hist_kwargs["label"] += f" IQR={iqr:.3f}"
+    hist_kwargs['label'] += f' IQR={iqr:.3f}'
     if f is not None:
-        hist_kwargs["label"] += f", $f$={f:.3f})"
-    else:
-        hist_kwargs["label"] += ")"
+        hist_kwargs['label'] += f', $f$={f:.3f})'
 
     ax.hist(vals, **hist_kwargs)
 
 
-def custom_hist_v2(ax, vals, label_length=-1, metrics="mean std iqr", f=None, **hist_kwargs):  # noqa: ARG001
-    bins = hist_kwargs["bins"]
-    vals = np.clip(vals, bins[0], bins[-1])
+def custom_hist_v2(ax, vals, label_length=-1, metrics="mean std iqr", f=None, **hist_kwargs):
 
-    hist_kwargs["label"] += f"\n(M={np.nanmedian(vals):+.3f},".replace("+", " ")
+    hist_kwargs['label'] += f'\n(M={np.nanmedian(vals):+.3f},'.replace('+', ' ')
     iqr = np.nanpercentile(vals, 75) - np.nanpercentile(vals, 25)
-    hist_kwargs["label"] += f" IQR={iqr:.3f}"
+    hist_kwargs['label'] += f' IQR={iqr:.3f}'
     if f is not None:
-        hist_kwargs["label"] += f", $f$={f:.3f})"
+        hist_kwargs['label'] += f', $f$={f:.3f})'
 
     ax.hist(vals, **hist_kwargs)
 
@@ -76,15 +77,17 @@ def delta_r(eta1, eta2, phi1, phi2):
 
 def format_number(number):
     if number >= 1e9:
-        return f"{number / 1e9:.1f}b"
-    if number >= 1e6:
-        return f"{number / 1e6:.1f}m"
-    if number >= 1e3:
-        return f"{number / 1e3:.1f}k"
-    return str(number)
+        return "{:.1f}b".format(number / 1e9)
+    elif number >= 1e6:
+        return "{:.1f}m".format(number / 1e6)
+    elif number >= 1e3:
+        return "{:.1f}k".format(number / 1e3)
+    else:
+        return str(number)
 
 
-def get_cmap(cmap_type="lin_seg"):
-    if cmap_type == "lin_seg":
-        return LinearSegmentedColormap.from_list("custom_cmap", ["cornflowerblue", "red"])
-    raise ValueError(f"Unknown cmap type: {cmap_type}")
+def get_cmap(type='lin_seg'):
+    if type == 'lin_seg':
+        return LinearSegmentedColormap.from_list('custom_cmap', ['cornflowerblue', 'red'])
+    else:
+        raise ValueError(f"Unknown cmap type: {type}")
