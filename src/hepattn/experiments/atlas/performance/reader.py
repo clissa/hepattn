@@ -4,7 +4,7 @@ import awkward as ak
 from tqdm import tqdm
 from copy import deepcopy
 import gc
-from ..utility.helper_dicts import pdgid_class_dict, class_mass_dict
+from .helper_dicts import pdgid_class_dict, class_mass_dict
 
 
 def load_predictions(pred_path, threshold=0.5, load_hung_matched_truth=False, model_name='hgpflow',
