@@ -1,5 +1,6 @@
 name: atlas_run4_jz1234_v1_cpu_inference
-seed_everything: 20260616
+seed_everything: 20260704
+
 
 data:
   inputs:
@@ -24,10 +25,9 @@ data:
   max_nodes: 800
   is_inference: true
   
-  train_path: /fast_scratch_4/atlas/pflow/0pileup_JZ1-4_Run4_AOD_samples/partitions/GLOW/data//dijet_JZ1234_June2026_2000/train/JZ4_user.edreyer.50520201._000284.mltree_noseg.root
-  valid_path: /fast_scratch_4/atlas/pflow/0pileup_JZ1-4_Run4_AOD_samples/partitions/GLOW/data/dijet_JZ1234_June2026_2000/val/JZ4_user.edreyer.50520201._000096.mltree_noseg.root
-  # test_path: /fast_scratch_4/atlas/pflow/0pileup_JZ1-4_Run4_AOD_samples/partitions/GLOW/data/dijet_JZ1234_June2026_2000/test/JZ4_user.edreyer.50520201._000208.mltree_noseg.root
-  test_path: /fast_scratch_4/atlas/pflow/0pileup_JZ1-4_Run4_AOD_samples/max/user.edreyer.801168.Py8EG_A14NNPDF23LO_jj_JZ3.recon.AOD.e8481_s4383_r17563_v12_mltree.root/user.edreyer.50520198._000249.mltree.root
+  train_path: /fast_scratch_4/atlas/pflow/0pileup_JZ1-4_Run4_AOD_samples/partitions/GLOW/data/dijet_JZ1234_June2026_2000/JZ1234_train.root
+  valid_path: /fast_scratch_4/atlas/pflow/0pileup_JZ1-4_Run4_AOD_samples/partitions/GLOW/data/dijet_JZ1234_June2026_2000/JZ1234_val.root
+  test_path: /fast_scratch_4/atlas/pflow/0pileup_JZ1-4_Run4_AOD_samples/partitions/GLOW/data/dijet_JZ1234_June2026_2000/JZ1234_test.root
   test_suff: baseline
 
   num_workers: 8
@@ -48,7 +48,7 @@ trainer:
   precision: 32-true
   gradient_clip_val: 0.1
   log_every_n_steps: 50
-  default_root_dir: /home/lclissa/projects/hepattn/results/glow_baseline
+  default_root_dir: /home/lclissa/projects/hepattn/results/jz1234_v0_nopart_reproduce/atlas_jz1234_v0_nopart_reproduce_20260703-T235340
   enable_progress_bar: True
   logger: false
 

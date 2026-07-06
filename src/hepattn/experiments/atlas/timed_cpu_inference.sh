@@ -6,7 +6,8 @@ REPO_ROOT="${HOME}/projects/hepattn"
 
 shopt -s nullglob
 # ckpts=("${REPO_ROOT}"/results/glow_baseline/epoch=027-val_loss=5.33018.ckpt)
-ckpts=("${JZ_PATH_RAW}/../results/glow_baseline/epoch=027-val_loss=5.33018.ckpt")
+# ckpts=("${JZ_PATH_RAW}/../results/glow_baseline/epoch=027-val_loss=5.33018.ckpt")
+ckpts=("${CKPT_PATH_TUNING}/jz1234_v0_nopart_reproduce/atlas_jz1234_v0_nopart_reproduce_20260703-T235340/ckpts/epoch=039-val_loss=5.25750.ckpt")
 shopt -u nullglob
 
 CKPT_PATH="${ckpts[0]}"
