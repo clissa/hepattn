@@ -10,8 +10,9 @@ shopt -s nullglob
 # cfg=("${SCRIPT_DIR}/configs/glow_cpu_inference_override.yaml")
 # ckpts=("${JZ_PATH_PARTITIONS}/../../results/glow_baseline/atlas_v1_nopart/epoch=199-val_loss=5.25962-43799.ckpt")
 # cfg=("${SCRIPT_DIR}/configs/glow_gpu_inference_override.yaml")
-ckpts=("${JZ_PATH_PARTITIONS}/../../results/jz1234_v0_nopart_reproduce/atlas_jz1234_v10_nopart_reproduce_20260630-T221535/ckpts/epoch=016-val_loss=5.32814.ckpt")
-cfg=("${SCRIPT_DIR}/configs/base_zj1234 inference_override.yaml")
+# ckpts=("${JZ_PATH_PARTITIONS}/../../results/jz1234_v0_nopart_reproduce/atlas_jz1234_v10_nopart_reproduce_20260630-T221535/ckpts/epoch=016-val_loss=5.32814.ckpt")
+ckpts=("${CKPT_PATH_TUNING}/jz1234_v0_nopart_reproduce/atlas_jz1234_v0_nopart_reproduce_20260703-T235340/ckpts/epoch=049-val_loss=5.21033.ckpt")
+cfg=("${SCRIPT_DIR}/configs/glow_gpu_inference_override.yaml")
 shopt -u nullglob
 
 CKPT_PATH="${ckpts[0]}"
