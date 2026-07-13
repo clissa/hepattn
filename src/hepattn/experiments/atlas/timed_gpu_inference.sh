@@ -11,7 +11,9 @@ shopt -s nullglob
 # ckpts=("${JZ_PATH_PARTITIONS}/../../results/glow_baseline/atlas_v1_nopart/epoch=199-val_loss=5.25962-43799.ckpt")
 # cfg=("${SCRIPT_DIR}/configs/glow_gpu_inference_override.yaml")
 # ckpts=("${JZ_PATH_PARTITIONS}/../../results/jz1234_v0_nopart_reproduce/atlas_jz1234_v10_nopart_reproduce_20260630-T221535/ckpts/epoch=016-val_loss=5.32814.ckpt")
-ckpts=("${CKPT_PATH_TUNING}/jz1234_v0_nopart_reproduce/atlas_jz1234_v0_nopart_reproduce_20260703-T235340/ckpts/epoch=049-val_loss=5.21033.ckpt")
+# ckpts=("${CKPT_PATH_TUNING}/jz1234_v0_nopart_reproduce/atlas_jz1234_v0_nopart_reproduce_20260703-T235340/ckpts/epoch=049-val_loss=5.21033.ckpt")
+# ckpts=("${CKPT_PATH_TUNING}/jz1234_v0_nopart_reproduce/atlas_jz1234_v0_nopart_reproduce_20260708-T180846/ckpts/epoch=065-val_loss=5.18897.ckpt")
+ckpts=("${CKPT_PATH_TUNING}/jz1234_v0_nopart_reproduce/atlas_jz1234_v0_nopart_reproduce_20260708-T180846/ckpts/epoch=035-val_loss=5.20390.ckpt") # this seemed best from Comet web UI plot
 cfg=("${SCRIPT_DIR}/configs/glow_gpu_inference_override.yaml")
 shopt -u nullglob
 
@@ -33,11 +35,12 @@ echo "Starting GPU inference at $(date -Is)"
 start_seconds=$(date +%s)
 
 # Keep comments outside the continued command; otherwise the config flag is not passed.
+# Optional output suffix for tuned-model evaluation:
+# --data.test_suff tuning
 "${REPO_ROOT}/.hepattn/bin/python" -u main.py test \
     -c "${CFG_PATH}" \
     --ckpt_path "${CKPT_PATH}" \
     --data.test_path "${DATA_PATH}" \
-    --data.test_suff baseline \
     --trainer.devices "${NUM_GPUS}" \
     # # --data.num_test 10 \
     # --data.batch_size 8
