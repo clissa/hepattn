@@ -42,7 +42,7 @@ data:
   scale_dict_path: &scale_dict_path configs/atlas_var_transform.yaml
 
 trainer:
-  max_epochs: 60
+  max_epochs: 70
   accelerator: gpu
   devices: 4
   precision: bf16-mixed
@@ -81,11 +81,13 @@ trainer:
 model:
   optimizer: Lion
 
+  init_ckpt_path: /home/lclissa/projects/hepattn/results/jz1234_v0_nopart_reproduce/atlas_jz1234_v0_nopart_reproduce_20260703-T235340/ckpts/epoch=049-val_loss=5.21033.ckpt
+
   lrs_config:
-    initial: 1e-6
-    max: 8e-5
-    end: 1e-6
-    pct_start: 0.03
+    initial: 5e-7
+    max: 3e-6
+    end: 1e-7
+    pct_start: 0.05
     weight_decay: 1e-4
     skip_scheduler: false
 
@@ -253,4 +255,6 @@ model:
                     hidden_layers: [512, 256, 128, 64, 32]
                 has_intermediate_loss: false
 
-ckpt_path: /home/lclissa/projects/hepattn/results/jz1234_v0_nopart_reproduce/atlas_jz1234_v0_nopart_reproduce_20260703-T235340/ckpts/epoch=049-val_loss=5.21033.ckpt
+optimizer: null
+lr_scheduler: null
+ckpt_path: null
