@@ -1,3 +1,4 @@
+from pathlib import Path
 from typing import Literal
 
 import torch
@@ -5,6 +6,7 @@ from lightning import LightningModule
 from lion_pytorch import Lion
 from torch import nn
 from torch.optim import AdamW
+
 # from torchjd import mtl_backward
 # from torchjd.aggregation import UPGrad
 
@@ -17,6 +19,7 @@ class ModelWrapper(LightningModule):
         lrs_config: dict,
         optimizer: Literal["AdamW", "Lion"] = "AdamW",
         mtl: bool = False,
+        init_ckpt_path: str | None = None,
     ):
         super().__init__()
 
@@ -27,10 +30,27 @@ class ModelWrapper(LightningModule):
         self.optimizer = optimizer
         self.lrs_config = lrs_config
         self.mtl = mtl
+        self.init_ckpt_path = init_ckpt_path
+
+        if init_ckpt_path is not None:
+            self._load_init_ckpt(init_ckpt_path)
 
         # If we are doing multi-task-learning, optimisation step must be done manually
         if mtl:
             self.automatic_optimization = False
+
+    def _load_init_ckpt(self, init_ckpt_path: str) -> None:
+        init_ckpt_path = Path(init_ckpt_path)
+        checkpoint = torch.load(init_ckpt_path, map_location="cpu", weights_only=False)
+        model_state_dict = {
+            key.removeprefix("model."): value
+            for key, value in checkpoint["state_dict"].items()
+            if key.startswith("model.")
+        }
+        if not model_state_dict:
+            raise KeyError(f"No model weights found in checkpoint: {init_ckpt_path}")
+        self.model.load_state_dict(model_state_dict)
+        print(f"Loaded initial model weights from {init_ckpt_path.resolve()!r}")
 
     def forward(self, inputs):
         return self.model(inputs)
@@ -97,7 +117,7 @@ class ModelWrapper(LightningModule):
 
         #     from datetime import datetime
         #     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        #     torch.save(self.detach_nested(losses_per_element), 
+        #     torch.save(self.detach_nested(losses_per_element),
         #         f"/srv01/agrp/nilotpal/projects/glow_atlas/hepattn/src/hepattn/experiments/atlas/logs/losses_per_element_{timestamp}.pt")
 
         #     idxs = targets["getitem_idx"].cpu().numpy().tolist()

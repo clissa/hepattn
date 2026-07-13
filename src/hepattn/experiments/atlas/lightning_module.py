@@ -14,8 +14,9 @@ class MPflow(ModelWrapper):
         lrs_config: dict,
         optimizer: str = "AdamW",
         mtl: bool = False,
+        init_ckpt_path: str | None = None,
     ):
-        super().__init__(name, model, lrs_config, optimizer, mtl)
+        super().__init__(name, model, lrs_config, optimizer, mtl, init_ckpt_path)
         self.MI = MaskInference
 
         self.obj_accuracy_micro = tm.classification.MulticlassAccuracy(num_classes=6, average="micro")
