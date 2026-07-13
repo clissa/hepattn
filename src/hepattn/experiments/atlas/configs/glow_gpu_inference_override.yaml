@@ -1,5 +1,5 @@
-name: atlas_v0_nopart_gpu_inference
-seed_everything: 20260616
+name: atlas_v0_tuning_nopart_gpu_inference
+seed_everything: 20260704
 
 data:
   inputs:
@@ -29,7 +29,7 @@ data:
   train_path: /fast_scratch_4/atlas/pflow/0pileup_JZ1-4_Run4_AOD_samples/partitions/GLOW/data/dijet_JZ1234_June2026_2000/JZ1234_train.root
   valid_path: /fast_scratch_4/atlas/pflow/0pileup_JZ1-4_Run4_AOD_samples/partitions/GLOW/data/dijet_JZ1234_June2026_2000/JZ1234_val.root
   test_path: /fast_scratch_4/atlas/pflow/0pileup_JZ1-4_Run4_AOD_samples/partitions/GLOW/data/dijet_JZ1234_June2026_2000/JZ1234_test.root
-  test_suff: v0
+  test_suff: tuningv0
 
   num_workers: 16
   num_train: -1
@@ -48,7 +48,7 @@ trainer:
   precision: bf16-mixed
   gradient_clip_val: 0.1
   log_every_n_steps: 50
-  default_root_dir: /home/lclissa/projects/hepattn/results/jz1234_v0_nopart_reproduce/atlas_jz1234_v0_nopart_reproduce_20260703-T235340
+  default_root_dir: /home/lclissa/projects/hepattn/results/jz1234_v0_nopart_reproduce/atlas_jz1234_v0_nopart_reproduce_20260708-T180846
   enable_progress_bar: True
   logger: false
 
