@@ -139,6 +139,7 @@ dmypy.json
 *.pdf
 logs/
 results/
+todo/
 
 # Extra
 target
