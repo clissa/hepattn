@@ -1366,3 +1366,195 @@ class IncidenceBasedRegressionTask(RegressionTask):
         loss = loss.mean(dim=-1)  # (B, N) — average over fields, keep per-object
         loss[~mask] = 0.0
         return {self.loss_fn_name: self.loss_weight * loss}
+
+
+class IncidenceBasedMixtureRegressionTask(IncidenceBasedRegressionTask):
+    """Incidence-based diagonal Gaussian-mixture regression in scaled space."""
+
+    def __init__(
+        self,
+        name: str,
+        input_hit: str,
+        input_object: str,
+        output_object: str,
+        target_object: str,
+        scale_dict_path: str,
+        net: nn.Module,
+        cost_weight: float,
+        use_nodes: bool = False,
+        has_intermediate_loss: bool = True,
+        mdn_fields: list[str] | None = None,
+        deterministic_fields: list[str] | None = None,
+        num_components: int = 1,
+        mdn_loss_weight: float = 1.0,
+        deterministic_loss_weight: float = 6.0,
+        mean_mode: str = "offset",
+        scale_floor: float = 1.0e-3,
+        initial_scale: float = 1.0e-1,
+    ):
+        mdn_fields = ["e", "pt"] if mdn_fields is None else mdn_fields
+        deterministic_fields = ["eta", "sinphi", "cosphi"] if deterministic_fields is None else deterministic_fields
+
+        if num_components <= 0:
+            raise ValueError("num_components must be positive")
+        if set(mdn_fields) & set(deterministic_fields):
+            raise ValueError("mdn_fields and deterministic_fields must be disjoint")
+        fields = [*mdn_fields, *deterministic_fields]
+        if fields != ["e", "pt", "eta", "sinphi", "cosphi"]:
+            raise ValueError("MDN and deterministic field order must be [e, pt, eta, sinphi, cosphi]")
+        if mean_mode not in {"offset", "absolute"}:
+            raise ValueError("mean_mode must be 'offset' or 'absolute'")
+        if scale_floor <= 0:
+            raise ValueError("scale_floor must be positive")
+        if initial_scale <= scale_floor:
+            raise ValueError("initial_scale must be greater than scale_floor")
+
+        num_mdn_fields = len(mdn_fields)
+        num_deterministic_fields = len(deterministic_fields)
+        output_size = num_components * (1 + 2 * num_mdn_fields) + num_deterministic_fields
+        if getattr(net, "output_size", None) != output_size:
+            raise ValueError(f"net.output_size must be {output_size}, got {getattr(net, 'output_size', None)}")
+
+        super().__init__(
+            name=name,
+            input_hit=input_hit,
+            input_object=input_object,
+            output_object=output_object,
+            target_object=target_object,
+            fields=fields,
+            loss_weight=1.0,
+            cost_weight=cost_weight,
+            scale_dict_path=scale_dict_path,
+            net=net,
+            loss="l1",
+            use_incidence=True,
+            use_nodes=use_nodes,
+            has_intermediate_loss=has_intermediate_loss,
+            mode="offset",
+            cost="new",
+        )
+
+        self.mdn_fields = mdn_fields
+        self.deterministic_fields = deterministic_fields
+        self.num_components = num_components
+        self.num_mdn_fields = num_mdn_fields
+        self.num_deterministic_fields = num_deterministic_fields
+        self.mdn_loss_weight = mdn_loss_weight
+        self.deterministic_loss_weight = deterministic_loss_weight
+        self.mean_mode = mean_mode
+        self.scale_floor = scale_floor
+        self.initial_scale = initial_scale
+        self.register_buffer("scale_offset", torch.tensor(math.log(math.expm1(initial_scale - scale_floor)), dtype=torch.float32))
+
+        self.outputs = [
+            output_object + "_regr",
+            output_object + "_proxy_regr",
+            output_object + "_proxy_ch_regr",
+            output_object + "_proxy_neut_regr",
+            output_object + "_is_charged",
+            output_object + "_mdn_log_weights",
+            output_object + "_mdn_means",
+            output_object + "_mdn_scales",
+            output_object + "_deterministic_regr",
+        ]
+
+    def forward(self, x: dict[str, Tensor]) -> dict[str, Tensor]:
+        incidence = x["incidence"].detach()
+        proxy_feats, is_charged, (proxy_feats_charged, proxy_feats_neutral) = self.get_proxy_feats(
+            incidence,
+            x,
+            class_probs=x["class_probs"].detach(),
+        )
+        input_data = torch.cat(
+            [
+                x[self.input_object + "_embed"],
+                proxy_feats,
+                is_charged.unsqueeze(-1),
+            ],
+            dim=-1,
+        )
+        if self.use_nodes:
+            valid_mask = x[self.input_hit + "_valid"].unsqueeze(-1)
+            masked_embed = x[self.input_hit + "_embed"] * valid_mask
+            node_feats = torch.bmm(incidence, masked_embed)
+            input_data = torch.cat([input_data, node_feats], dim=-1)
+
+        raw = self.net(input_data).to(torch.float32)
+        logits_width = self.num_components
+        mdn_width = self.num_components * self.num_mdn_fields
+        raw_logits, raw_means, raw_scales, deterministic = torch.split(
+            raw,
+            [logits_width, mdn_width, mdn_width, self.num_deterministic_fields],
+            dim=-1,
+        )
+        shape = (*raw.shape[:-1], self.num_components, self.num_mdn_fields)
+        log_weights = torch.log_softmax(raw_logits, dim=-1)
+        means = raw_means.reshape(shape)
+        scales = torch.nn.functional.softplus(raw_scales.reshape(shape) + self.scale_offset) + self.scale_floor
+
+        if self.mean_mode == "offset":
+            means = means + proxy_feats[..., : self.num_mdn_fields].unsqueeze(-2)
+            deterministic = deterministic + proxy_feats[..., self.num_mdn_fields :]
+
+        mdn_point = (log_weights.exp().unsqueeze(-1) * means).sum(dim=-2)
+        point = torch.cat([mdn_point, deterministic], dim=-1)
+
+        return {
+            self.output_object + "_regr": point,
+            self.output_object + "_proxy_regr": proxy_feats,
+            self.output_object + "_proxy_ch_regr": proxy_feats_charged,
+            self.output_object + "_proxy_neut_regr": proxy_feats_neutral,
+            self.output_object + "_is_charged": is_charged,
+            self.output_object + "_mdn_log_weights": log_weights,
+            self.output_object + "_mdn_means": means,
+            self.output_object + "_mdn_scales": scales,
+            self.output_object + "_deterministic_regr": deterministic,
+        }
+
+    def _loss_per_object(self, outputs: dict[str, Tensor], targets: dict[str, Tensor]) -> tuple[Tensor, Tensor]:
+        target_mdn = torch.stack([targets[self.target_object + "_" + field] for field in self.mdn_fields], dim=-1).to(torch.float32)
+        target_deterministic = torch.stack(
+            [targets[self.target_object + "_" + field] for field in self.deterministic_fields],
+            dim=-1,
+        ).to(torch.float32)
+        log_weights = outputs[self.output_object + "_mdn_log_weights"].to(torch.float32)
+        means = outputs[self.output_object + "_mdn_means"].to(torch.float32)
+        scales = outputs[self.output_object + "_mdn_scales"].to(torch.float32)
+        deterministic = outputs[self.output_object + "_deterministic_regr"].to(torch.float32)
+
+        standardized = (target_mdn.unsqueeze(-2) - means) / scales
+        component_log_prob = -0.5 * (
+            standardized.square() + 2 * scales.log() + math.log(2 * math.pi)
+        ).sum(dim=-1)
+        mdn_nll = -torch.logsumexp(log_weights + component_log_prob, dim=-1)
+        deterministic_l1 = torch.nn.functional.l1_loss(deterministic, target_deterministic, reduction="none").mean(dim=-1)
+        return mdn_nll, deterministic_l1
+
+    def new_cost(self, outputs: dict[str, Tensor], targets: dict[str, Tensor]) -> dict[str, Tensor]:
+        point = outputs[self.output_object + "_regr"].detach().to(torch.float32)
+        target = torch.stack([targets[self.target_object + "_" + field] for field in self.fields], dim=-1).to(torch.float32)
+        costs = (point.unsqueeze(2) - target.unsqueeze(1)).abs().mean(dim=-1)
+        return {"regr_l1": self.cost_weight * costs}
+
+    def loss(self, outputs: dict[str, Tensor], targets: dict[str, Tensor]) -> dict[str, Tensor]:
+        mdn_nll, deterministic_l1 = self._loss_per_object(outputs, targets)
+        mask = targets[self.target_object + "_valid"]
+        denominator = mask.sum().clamp_min(1)
+        mdn_loss = torch.where(mask, mdn_nll, torch.zeros_like(mdn_nll)).sum() / denominator
+        deterministic_loss = torch.where(mask, deterministic_l1, torch.zeros_like(deterministic_l1)).sum() / denominator
+        return {
+            "mdn_nll": self.mdn_loss_weight * mdn_loss,
+            "deterministic_l1": self.deterministic_loss_weight * deterministic_loss,
+        }
+
+    def loss_per_element(self, outputs: dict[str, Tensor], targets: dict[str, Tensor]) -> dict[str, Tensor]:
+        mdn_nll, deterministic_l1 = self._loss_per_object(outputs, targets)
+        mask = targets[self.target_object + "_valid"]
+        return {
+            "mdn_nll": torch.where(mask, self.mdn_loss_weight * mdn_nll, torch.zeros_like(mdn_nll)),
+            "deterministic_l1": torch.where(
+                mask,
+                self.deterministic_loss_weight * deterministic_l1,
+                torch.zeros_like(deterministic_l1),
+            ),
+        }
