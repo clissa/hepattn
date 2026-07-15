@@ -97,6 +97,32 @@ def test_constructor_validates_head_width(tmp_path):
         make_task(tmp_path, [0.0] * 7)
 
 
+def test_constructor_validates_input_width_when_embedding_dim_is_set(tmp_path):
+    class Head(nn.Module):
+        input_size = 518
+        output_size = 8
+
+        def forward(self, x):
+            return x
+
+    scale_path = tmp_path / "scales.yaml"
+    scale_path.write_text("{}\n")
+    with pytest.raises(ValueError, match=r"must be 390, got 518.*5 proxy features.*1 charged flag"):
+        IncidenceBasedMixtureRegressionTask(
+            name="regression",
+            input_hit="node",
+            input_object="query",
+            output_object="pflow",
+            target_object="particle",
+            scale_dict_path=str(scale_path),
+            net=Head(),
+            cost_weight=10.0,
+            use_nodes=True,
+            embedding_dim=192,
+            has_intermediate_loss=False,
+        )
+
+
 @pytest.mark.parametrize(("num_components", "width"), [(1, 8), (3, 18)])
 def test_head_shapes_and_log_weight_normalization(tmp_path, num_components, width):
     task = make_task(tmp_path, [0.0] * width, num_components=num_components)

@@ -1382,6 +1382,7 @@ class IncidenceBasedMixtureRegressionTask(IncidenceBasedRegressionTask):
         net: nn.Module,
         cost_weight: float,
         use_nodes: bool = False,
+        embedding_dim: int | None = None,
         has_intermediate_loss: bool = True,
         mdn_fields: list[str] | None = None,
         deterministic_fields: list[str] | None = None,
@@ -1408,12 +1409,23 @@ class IncidenceBasedMixtureRegressionTask(IncidenceBasedRegressionTask):
             raise ValueError("scale_floor must be positive")
         if initial_scale <= scale_floor:
             raise ValueError("initial_scale must be greater than scale_floor")
+        if embedding_dim is not None and embedding_dim <= 0:
+            raise ValueError("embedding_dim must be positive")
 
         num_mdn_fields = len(mdn_fields)
         num_deterministic_fields = len(deterministic_fields)
         output_size = num_components * (1 + 2 * num_mdn_fields) + num_deterministic_fields
         if getattr(net, "output_size", None) != output_size:
             raise ValueError(f"net.output_size must be {output_size}, got {getattr(net, 'output_size', None)}")
+        if embedding_dim is not None and hasattr(net, "input_size"):
+            expected_input_size = embedding_dim + len(fields) + 1 + (embedding_dim if use_nodes else 0)
+            if net.input_size != expected_input_size:
+                node_features = f" + embedding_dim ({embedding_dim}) node features" if use_nodes else ""
+                raise ValueError(
+                    f"net.input_size must be {expected_input_size}, got {net.input_size}. "
+                    f"Expected embedding_dim ({embedding_dim}) query features + {len(fields)} proxy features "
+                    f"+ 1 charged flag{node_features}."
+                )
 
         super().__init__(
             name=name,
