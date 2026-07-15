@@ -33,9 +33,9 @@ data:
 
   num_workers: 32
   num_train: -1
-  num_train_per_epoch: 10_000
+  num_train_per_epoch: 12_000
   num_val: -1
-  num_val_per_epoch: 5000
+  num_val_per_epoch: 10_000
   num_test: -1
   # num_test_per_epoch: 5000
 
@@ -243,7 +243,7 @@ model:
                 target_object: particle
                 num_components: 1
                 mdn_loss_weight: 1.0
-                deterministic_loss_weight: 6.0
+                deterministic_loss_weight: 60
                 cost_weight: 10.0
                 use_nodes: true
                 mean_mode: offset
