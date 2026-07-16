@@ -31,7 +31,7 @@ data:
   test_path: /fast_scratch_4/atlas/pflow/0pileup_JZ1-4_Run4_AOD_samples/partitions/GLOW/data/dijet_JZ1234_June2026_2000/JZ1234_test.root
 
 
-  num_workers: 32
+  num_workers: 16
   num_train: -1
   num_train_per_epoch: 12_000
   num_val: -1
