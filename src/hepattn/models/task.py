@@ -363,7 +363,7 @@ class ObjectHitMaskTask(Task):
                 output, target, object_valid_mask=object_pad, input_pad_mask=hit_pad, sample_weight=sample_weight
             )
         return losses
-    
+
     def loss_per_element(self, outputs: dict[str, Tensor], targets: dict[str, Tensor]) -> dict[str, Tensor]:
         output = outputs[self.output_object_hit + "_logit"]
         target = targets[self.target_object_hit + "_" + self.target_field].type_as(output)
@@ -1140,8 +1140,13 @@ class IncidenceBasedRegressionTask(RegressionTask):
         self.net = net
         self.use_nodes = use_nodes
         self.inputs = [input_object + "_embed"] + [input_hit + "_" + field for field in fields]
-        self.outputs = [output_object + "_regr", output_object + "_proxy_regr", 
-            output_object + "_proxy_ch_regr", output_object + "_proxy_neut_regr", output_object + "_is_charged"]
+        self.outputs = [
+            output_object + "_regr",
+            output_object + "_proxy_regr",
+            output_object + "_proxy_ch_regr",
+            output_object + "_proxy_neut_regr",
+            output_object + "_is_charged",
+        ]
         self.mode = mode
         if mode not in {"offset", "scale"}:
             raise ValueError(f"Invalid mode {mode}, must be 'offset' or 'scale'")
@@ -1156,8 +1161,7 @@ class IncidenceBasedRegressionTask(RegressionTask):
         # get the predictions
         if self.use_incidence:
             inc = x["incidence"].detach()
-            proxy_feats, is_charged, (proxy_feats_charged, proxy_feats_neutral) = \
-                self.get_proxy_feats(inc, x, class_probs=x["class_probs"].detach())
+            proxy_feats, is_charged, (proxy_feats_charged, proxy_feats_neutral) = self.get_proxy_feats(inc, x, class_probs=x["class_probs"].detach())
             input_data = torch.cat(
                 [
                     x[self.input_object + "_embed"],
@@ -1181,10 +1185,12 @@ class IncidenceBasedRegressionTask(RegressionTask):
         else:
             raise ValueError(f"Invalid mode {self.mode}")
 
-        return {self.output_object + "_regr": preds, self.output_object + "_proxy_regr": proxy_feats,
-            self.output_object + "_proxy_ch_regr": proxy_feats_charged, 
+        return {
+            self.output_object + "_regr": preds,
+            self.output_object + "_proxy_regr": proxy_feats,
+            self.output_object + "_proxy_ch_regr": proxy_feats_charged,
             self.output_object + "_proxy_neut_regr": proxy_feats_neutral,
-            self.output_object + "_is_charged": is_charged
+            self.output_object + "_is_charged": is_charged,
         }
 
     def predict(self, outputs: dict[str, Tensor]) -> dict[str, Tensor]:
@@ -1193,12 +1199,13 @@ class IncidenceBasedRegressionTask(RegressionTask):
         proxy_regr = outputs[self.output_object + "_proxy_regr"]
         proxy_ch_regr = outputs[self.output_object + "_proxy_ch_regr"]
         proxy_neut_regr = outputs[self.output_object + "_proxy_neut_regr"]
-        return {self.output_object + "_" + field: pflow_regr[..., i] for i, field in enumerate(self.fields)} | {
-            self.output_object + "_proxy_" + field: proxy_regr[..., i] for i, field in enumerate(self.fields)} | {
-            self.output_object + "_proxy_ch_" + field: proxy_ch_regr[..., i] for i, field in enumerate(self.fields)} | {
-            self.output_object + "_proxy_neut_" + field: proxy_neut_regr[..., i] for i, field in enumerate(self.fields)} | {
-            self.output_object + "_is_charged": outputs[self.output_object + "_is_charged"]
-        }
+        return (
+            {self.output_object + "_" + field: pflow_regr[..., i] for i, field in enumerate(self.fields)}
+            | {self.output_object + "_proxy_" + field: proxy_regr[..., i] for i, field in enumerate(self.fields)}
+            | {self.output_object + "_proxy_ch_" + field: proxy_ch_regr[..., i] for i, field in enumerate(self.fields)}
+            | {self.output_object + "_proxy_neut_" + field: proxy_neut_regr[..., i] for i, field in enumerate(self.fields)}
+            | {self.output_object + "_is_charged": outputs[self.output_object + "_is_charged"]}
+        )
 
     def metrics(self, preds: dict[str, Tensor], targets: dict[str, Tensor]) -> dict[str, Tensor]:
         metrics = super().metrics(preds, targets)
@@ -1297,7 +1304,7 @@ class IncidenceBasedRegressionTask(RegressionTask):
         # charged_inc_new = charged_inc.float()
         zero_track_mask = charged_inc_new.sum(-1, keepdim=True) == 0
         charged_inc = torch.where(zero_track_mask, charged_inc_top2, charged_inc_new)
- 
+
         # -------------------------
         # --- ADDED: Final Cleanup (Fixes the Top2/Recovery duplicates) ---
         # 1. Look at the incidence scores ONLY for the tracks we have currently selected
@@ -1309,8 +1316,8 @@ class IncidenceBasedRegressionTask(RegressionTask):
         # 4. Apply the mask.
         # Note: If charged_inc was all zeros, intersection with final_strict_mask remains zeros.
         charged_inc = charged_inc * final_strict_mask.float()
- 
-        #-----------------
+
+        # -----------------
         # Split charged and neutral
         is_charged = class_probs.argmax(-1) < 3
 
@@ -1326,15 +1333,14 @@ class IncidenceBasedRegressionTask(RegressionTask):
         proxy_feats_neutral[..., 0] = inc_e_weighted.sum(-1)
         proxy_feats_neutral[..., 1] = proxy_feats_neutral[..., 0] / torch.cosh(proxy_feats_neutral[..., 2])
 
-        ### OLD
+        # OLD
         # proxy_feats_neutral = self.scale_proxy_feats(proxy_feats_neutral) * (~is_charged).unsqueeze(-1)
         # proxy_feats = proxy_feats_charged + proxy_feats_neutral
-        ### NEW
+        # NEW
         proxy_feats_neutral = self.scale_proxy_feats(proxy_feats_neutral)
         proxy_feats = proxy_feats_charged + proxy_feats_neutral * (~is_charged).unsqueeze(-1)
 
         return proxy_feats, is_charged, (proxy_feats_charged, proxy_feats_neutral)
-
 
         # #-----------------
         # # Split charged and neutral
@@ -1533,14 +1539,25 @@ class IncidenceBasedMixtureRegressionTask(IncidenceBasedRegressionTask):
         means = outputs[self.output_object + "_mdn_means"].to(torch.float32)
         scales = outputs[self.output_object + "_mdn_scales"].to(torch.float32)
         deterministic = outputs[self.output_object + "_deterministic_regr"].to(torch.float32)
+        valid = targets[self.target_object + "_valid"].bool()
+        target_mdn = target_mdn.masked_fill(~valid.unsqueeze(-1), 0.0)
+        target_deterministic = target_deterministic.masked_fill(~valid.unsqueeze(-1), 0.0)
 
         standardized = (target_mdn.unsqueeze(-2) - means) / scales
-        component_log_prob = -0.5 * (
-            standardized.square() + 2 * scales.log() + math.log(2 * math.pi)
-        ).sum(dim=-1)
+        component_log_prob = -0.5 * (standardized.square() + 2 * scales.log() + math.log(2 * math.pi)).sum(dim=-1)
         mdn_nll = -torch.logsumexp(log_weights + component_log_prob, dim=-1)
         deterministic_l1 = torch.nn.functional.l1_loss(deterministic, target_deterministic, reduction="none").mean(dim=-1)
         return mdn_nll, deterministic_l1
+
+    def metrics(self, preds: dict[str, Tensor], targets: dict[str, Tensor]) -> dict[str, Tensor]:
+        metrics = super().metrics(preds, targets)
+        valid = targets[self.target_object + "_valid"].bool()
+        point = torch.stack([preds[self.output_object + "_" + field] for field in self.fields], dim=-1).to(torch.float32)
+        target = torch.stack([targets[self.target_object + "_" + field] for field in self.fields], dim=-1).to(torch.float32)
+        abs_err = (point[valid] - target[valid]).abs()
+        metrics["point_l1"] = abs_err.mean()
+        metrics["mdn_point_l1"] = abs_err[..., : self.num_mdn_fields].mean()
+        return metrics
 
     def new_cost(self, outputs: dict[str, Tensor], targets: dict[str, Tensor]) -> dict[str, Tensor]:
         point = outputs[self.output_object + "_regr"].detach().to(torch.float32)

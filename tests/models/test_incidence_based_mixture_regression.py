@@ -297,6 +297,31 @@ def test_loss_per_element_shapes_and_invalid_zeros(tmp_path):
     assert torch.equal(losses["deterministic_l1"][~valid], torch.zeros(3))
 
 
+def test_nan_padded_invalid_targets_do_not_poison_loss_or_gradients(tmp_path):
+    task = make_task(tmp_path, [0.0] * 8, mean_mode="absolute")
+    log_weights = torch.zeros(1, 2, 1)
+    means = torch.zeros(1, 2, 1, 2, requires_grad=True)
+    scales = torch.ones(1, 2, 1, 2, requires_grad=True)
+    deterministic = torch.zeros(1, 2, 3, requires_grad=True)
+    target_mdn = torch.tensor([[[1.0, 2.0], [torch.nan, torch.nan]]])
+    target_deterministic = torch.tensor([[[1.0, 2.0, 3.0], [torch.nan, torch.nan, torch.nan]]])
+    valid = torch.tensor([[True, False]])
+    targets = loss_targets(target_mdn, target_deterministic, valid)
+
+    outputs = loss_outputs(log_weights, means, scales, deterministic)
+    losses = task.loss(outputs, targets)
+    per_element = task.loss_per_element(outputs, targets)
+    sum(losses.values()).backward()
+
+    expected_nll = torch.tensor(2.5 + math.log(2 * math.pi))
+    torch.testing.assert_close(losses["mdn_nll"], expected_nll)
+    torch.testing.assert_close(losses["deterministic_l1"], torch.tensor(12.0))
+    assert all(torch.isfinite(loss) for loss in losses.values())
+    assert torch.equal(per_element["mdn_nll"][~valid], torch.zeros(1))
+    assert torch.equal(per_element["deterministic_l1"][~valid], torch.zeros(1))
+    assert all(torch.isfinite(tensor.grad).all() for tensor in (means, scales, deterministic))
+
+
 def test_single_component_mean_and_scale_gradients(tmp_path):
     task = make_task(tmp_path, [0.0] * 8, mean_mode="absolute")
     means = torch.zeros(1, 1, 1, 2, requires_grad=True)
@@ -367,6 +392,36 @@ def test_all_forward_outputs_support_matching_permutation(tmp_path):
     losses = task.loss(permuted, targets)
 
     assert all(torch.isfinite(loss) for loss in losses.values())
+
+
+def test_point_l1_metrics_use_valid_scaled_space_targets(tmp_path):
+    task = make_task(tmp_path, [0.0] * 8, mean_mode="absolute")
+    preds = {
+        "pflow_e": torch.tensor([[2.0, torch.nan]]),
+        "pflow_pt": torch.tensor([[4.0, torch.nan]]),
+        "pflow_eta": torch.tensor([[6.0, torch.nan]]),
+        "pflow_sinphi": torch.tensor([[8.0, torch.nan]]),
+        "pflow_cosphi": torch.tensor([[10.0, torch.nan]]),
+        "pflow_proxy_e": torch.tensor([[2.0, torch.nan]]),
+        "pflow_proxy_pt": torch.tensor([[4.0, torch.nan]]),
+        "pflow_proxy_eta": torch.tensor([[6.0, torch.nan]]),
+        "pflow_proxy_sinphi": torch.tensor([[8.0, torch.nan]]),
+        "pflow_proxy_cosphi": torch.tensor([[10.0, torch.nan]]),
+    }
+    targets = {
+        "particle_e": torch.tensor([[1.0, torch.nan]]),
+        "particle_pt": torch.tensor([[2.0, torch.nan]]),
+        "particle_eta": torch.tensor([[3.0, torch.nan]]),
+        "particle_sinphi": torch.tensor([[4.0, torch.nan]]),
+        "particle_cosphi": torch.tensor([[5.0, torch.nan]]),
+        "particle_valid": torch.tensor([[True, False]]),
+    }
+
+    metrics = task.metrics(preds, targets)
+
+    torch.testing.assert_close(metrics["point_l1"], torch.tensor(3.0))
+    torch.testing.assert_close(metrics["mdn_point_l1"], torch.tensor(1.5))
+    assert all(torch.isfinite(value) for value in metrics.values())
 
 
 def test_predict_preserves_legacy_schema_without_mixture_parameters(tmp_path):
