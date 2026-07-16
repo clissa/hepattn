@@ -13,8 +13,11 @@ shopt -s nullglob
 # ckpts=("${JZ_PATH_PARTITIONS}/../../results/jz1234_v0_nopart_reproduce/atlas_jz1234_v10_nopart_reproduce_20260630-T221535/ckpts/epoch=016-val_loss=5.32814.ckpt")
 # ckpts=("${CKPT_PATH_TUNING}/jz1234_v0_nopart_reproduce/atlas_jz1234_v0_nopart_reproduce_20260703-T235340/ckpts/epoch=049-val_loss=5.21033.ckpt")
 # ckpts=("${CKPT_PATH_TUNING}/jz1234_v0_nopart_reproduce/atlas_jz1234_v0_nopart_reproduce_20260708-T180846/ckpts/epoch=065-val_loss=5.18897.ckpt")
-ckpts=("${CKPT_PATH_TUNING}/jz1234_v0_nopart_reproduce/atlas_jz1234_v0_nopart_reproduce_20260708-T180846/ckpts/epoch=035-val_loss=5.20390.ckpt") # this seemed best from Comet web UI plot
-cfg=("${SCRIPT_DIR}/configs/glow_gpu_inference_override.yaml")
+# ckpts=("${CKPT_PATH_TUNING}/jz1234_v0_nopart_reproduce/atlas_jz1234_v0_nopart_reproduce_20260708-T180846/ckpts/epoch=035-val_loss=5.20390.ckpt") # this seemed best from Comet web UI plot
+# ckpts=("${CKPT_PATH_TUNING}/MDN_jz1234_v0_nopart_reproduce/atlas_MDN_jz1234_v0_nopart_reproduce_20260714-T172348/ckpts/epoch=068-val_loss=4.95623.ckpt") 
+ckpts=("${CKPT_PATH_TUNING}/MDN_jz1234_v0_nopart_reproduce/atlas_MDN_jz1234_v0_nopart_reproduce_20260714-T232307/ckpts/epoch=153-val_loss=0.74976.ckpt")
+# cfg=("${SCRIPT_DIR}/configs/glow_gpu_inference_override.yaml")
+cfg=("${SCRIPT_DIR}/configs/base_MDN_jz1234.yaml")
 shopt -u nullglob
 
 CKPT_PATH="${ckpts[0]}"
@@ -41,7 +44,8 @@ start_seconds=$(date +%s)
     -c "${CFG_PATH}" \
     --ckpt_path "${CKPT_PATH}" \
     --data.test_path "${DATA_PATH}" \
-    --trainer.devices "${NUM_GPUS}" \
+    --data.is_inference true
+    # --trainer.devices "${NUM_GPUS}" \
     # # --data.num_test 10 \
     # --data.batch_size 8
 
