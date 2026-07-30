@@ -35,7 +35,7 @@ data:
   num_train: -1
   num_train_per_epoch: 12_000
   num_val: -1
-  num_val_per_epoch: 10_000
+  # num_val_per_epoch: 10_000
   num_test: -1
   # num_test_per_epoch: 5000
 
@@ -132,7 +132,7 @@ model:
       encoder:
         class_path: hepattn.models.Encoder
         init_args:
-          num_layers: 6
+          num_layers: 4
           dim: *dim
           attn_type: flash-varlen # torch # flash-varlen
           hybrid_norm: true
@@ -142,7 +142,7 @@ model:
             num_heads: 16
 
       decoder:
-        num_decoder_layers: 4
+        num_decoder_layers: 3
         num_queries: *num_particles
         mask_attention: true
         use_query_masks: false

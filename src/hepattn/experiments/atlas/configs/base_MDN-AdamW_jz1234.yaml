@@ -33,11 +33,11 @@ data:
 
   num_workers: 16
   num_train: -1
-  num_train_per_epoch: 12_000
+  num_train_per_epoch: null
   num_val: -1
-  num_val_per_epoch: 10_000
+  num_val_per_epoch: null
   num_test: -1
-  # num_test_per_epoch: 5000
+  num_test_per_epoch: null
 
   batch_size: 112
   incidence_cutval: 0.01
@@ -45,7 +45,7 @@ data:
   scale_dict_path: &scale_dict_path configs/atlas_var_transform.yaml
 
 trainer:
-  max_epochs: 200
+  max_epochs: 15
   accelerator: gpu
   devices: 4
   use_distributed_sampler: False
@@ -83,14 +83,21 @@ trainer:
         refresh_rate: 50
 
 model:
-  optimizer: Lion
+  optimizer: AdamW
 
+  # lrs_config:
+  #   initial: 3.0e-6
+  #   max: 3.0e-4
+  #   end: 3.0e-6
+  #   pct_start: 0.05
+  #   weight_decay: 1.0e-2
+  #   skip_scheduler: false
   lrs_config:
-    initial: 1e-6
-    max: 8e-5
-    end: 1e-6
-    pct_start: 0.03
-    weight_decay: 1e-4
+    initial: 2.0e-6
+    max: 2.0e-4
+    end: 2.0e-6
+    pct_start: 0.05
+    weight_decay: 1.0e-2
     skip_scheduler: false
 
   mtl: false
@@ -243,7 +250,7 @@ model:
                 target_object: particle
                 num_components: 1
                 mdn_loss_weight: 1.0
-                deterministic_loss_weight: 60
+                deterministic_loss_weight: 6
                 cost_weight: 10.0
                 use_nodes: true
                 embedding_dim: *dim
