@@ -248,6 +248,7 @@ class ObjectHitMaskTask(Task):
         target_field: str = "valid",
         logit_scale: float = 1.0,
         pred_threshold: float = 0.5,
+        focal_gamma: float = 2.0,
         has_intermediate_loss: bool = True,
     ):
         """Task for predicting associations between objects and hits.
@@ -280,6 +281,8 @@ class ObjectHitMaskTask(Task):
             Scale for logits, by default 1.0.
         pred_threshold : float, optional
             Prediction threshold, by default 0.5.
+        focal_gamma : float, optional
+            Focusing parameter for ``mask_focal``, by default 2.0.
         has_intermediate_loss : bool, optional
             Whether task has intermediate loss, by default True.
         """
@@ -299,6 +302,7 @@ class ObjectHitMaskTask(Task):
         self.mask_attn = mask_attn
         self.logit_scale = logit_scale
         self.pred_threshold = pred_threshold
+        self.focal_gamma = focal_gamma
         self.has_intermediate_loss = mask_attn
 
         self.output_object_hit = output_object + "_" + input_hit
@@ -359,9 +363,14 @@ class ObjectHitMaskTask(Task):
         sample_weight = target + self.null_weight * (1 - target)
         losses = {}
         for loss_fn, loss_weight in self.losses.items():
-            losses[loss_fn] = loss_weight * loss_fns[loss_fn](
-                output, target, object_valid_mask=object_pad, input_pad_mask=hit_pad, sample_weight=sample_weight
-            )
+            loss_kwargs = {
+                "object_valid_mask": object_pad,
+                "input_pad_mask": hit_pad,
+                "sample_weight": sample_weight,
+            }
+            if loss_fn == "mask_focal":
+                loss_kwargs["gamma"] = self.focal_gamma
+            losses[loss_fn] = loss_weight * loss_fns[loss_fn](output, target, **loss_kwargs)
         return losses
 
     def loss_per_element(self, outputs: dict[str, Tensor], targets: dict[str, Tensor]) -> dict[str, Tensor]:
@@ -372,9 +381,15 @@ class ObjectHitMaskTask(Task):
         sample_weight = target + self.null_weight * (1 - target)
         losses = {}
         for loss_fn, loss_weight in self.losses.items():
-            losses[loss_fn] = loss_weight * loss_fns[loss_fn](
-                output, target, object_valid_mask=object_pad, input_pad_mask=hit_pad, sample_weight=sample_weight, reduction="none"
-            )
+            loss_kwargs = {
+                "object_valid_mask": object_pad,
+                "input_pad_mask": hit_pad,
+                "sample_weight": sample_weight,
+                "reduction": "none",
+            }
+            if loss_fn == "mask_focal":
+                loss_kwargs["gamma"] = self.focal_gamma
+            losses[loss_fn] = loss_weight * loss_fns[loss_fn](output, target, **loss_kwargs)
         return losses
 
 
