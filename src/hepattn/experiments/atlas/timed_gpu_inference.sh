@@ -15,10 +15,18 @@ shopt -s nullglob
 # ckpts=("${CKPT_PATH_TUNING}/jz1234_v0_nopart_reproduce/atlas_jz1234_v0_nopart_reproduce_20260708-T180846/ckpts/epoch=065-val_loss=5.18897.ckpt")
 # ckpts=("${CKPT_PATH_TUNING}/jz1234_v0_nopart_reproduce/atlas_jz1234_v0_nopart_reproduce_20260708-T180846/ckpts/epoch=035-val_loss=5.20390.ckpt") # this seemed best from Comet web UI plot
 # ckpts=("${CKPT_PATH_TUNING}/MDN_jz1234_v0_nopart_reproduce/atlas_MDN_jz1234_v0_nopart_reproduce_20260714-T172348/ckpts/epoch=068-val_loss=4.95623.ckpt") 
-ckpts=("${CKPT_PATH_TUNING}/MDN_jz1234_v0_nopart_reproduce/atlas_MDN_jz1234_v0_nopart_reproduce_20260714-T232307/ckpts/epoch=153-val_loss=0.74976.ckpt")
+# ckpts=("${CKPT_PATH_TUNING}/MDN_jz1234_v0_nopart_reproduce/atlas_MDN_jz1234_v0_nopart_reproduce_20260714-T232307/ckpts/epoch=153-val_loss=0.74976.ckpt")
+# ckpts=("${CKPT_PATH_TUNING}/MDN_jz1234_v0_nopart_reproduce/atlas_MDN_jz1234_v0_nopart_reproduce_20260716-T022024/ckpts/epoch=104-val_loss=3.90172.ckpt")
+# ckpts=("${CKPT_PATH_TUNING}/MDN_jz1234_v0_nopart_reproduce/atlas_MDN_jz1234_v0_nopart_reproduce_20260715-T201000/ckpts/epoch=120-val_loss=3.82704.ckpt")
+# ckpts=("${CKPT_PATH_TUNING}/MDN_jz1234_v0_nopart_reproduce/atlas_MDN_jz1234_v0_nopart_reproduce_20260716-T223207/ckpts/epoch=013-val_loss=0.28362.ckpt")
+ckpts=("${CKPT_PATH_TUNING}/MDN_jz1234_v0_nopart_reproduce/atlas_MDN_jz1234_v0_nopart_reproduce_20260716-T223207/ckpts/epoch=006-val_loss=0.59224.ckpt")
 # cfg=("${SCRIPT_DIR}/configs/glow_gpu_inference_override.yaml")
-cfg=("${SCRIPT_DIR}/configs/base_MDN_jz1234.yaml")
+# cfg=("${SCRIPT_DIR}/configs/base_MDN-small_jz1234_inference_override.yaml")
+# cfg=("${SCRIPT_DIR}/configs/config.yaml")
+cfg=("${SCRIPT_DIR}/configs/base_MDN-AdamW_jz1234.yaml")
 shopt -u nullglob
+
+
 
 CKPT_PATH="${ckpts[0]}"
 CFG_PATH="${cfg[0]}"
