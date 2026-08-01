@@ -4,7 +4,7 @@ set -euo pipefail
 REPO_ROOT=/home/lclissa/projects/hepattn
 ATLAS_DIR="${REPO_ROOT}/src/hepattn/experiments/atlas"
 CONFIG_DIR="${ATLAS_DIR}/configs/configs_queue"
-LOG_DIR="${REPO_ROOT}/logs"
+LOG_DIR="${REPO_ROOT}/logs/quick-search"
 PYTHON="${REPO_ROOT}/.hepattn/bin/python"
 BASE_PORT="${QS_BASE_PORT:-29500}"
 
