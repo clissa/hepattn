@@ -295,7 +295,12 @@ Useful selection metrics include:
 Every entry below is one targeted experimental feature. All unspecified fields
 must remain identical to the selected high-weight reference.
 
-### 1. Deterministic weight 120
+The two-GPU operational reference is `qs00_ref_detw60`. Every queue config uses
+Lion, two devices, a per-device batch size of 80, gradient accumulation of two,
+and 22 epochs. The twelve alternatives below are derived independently from
+that reference.
+
+### 1. Deterministic weight 120 (`qs01_detw120`)
 
 Change only:
 
@@ -310,7 +315,7 @@ regresses, test 30 as the lower bracket around the successful value 60.
 Primary metrics: raw deterministic L1, MDN NLL, point L1, masks, incidence, and
 gradient stability.
 
-### 2. Slower OneCycle warmup
+### 2. Slower OneCycle warmup (`qs02_warm20`)
 
 Change only:
 
@@ -325,7 +330,7 @@ the peak or final LR.
 Primary metrics: early loss stability, final task metrics, and convergence by
 the fixed epoch budget.
 
-### 3. Lower peak learning rate
+### 3. Lower peak learning rate (`qs03_lrmax1e4`)
 
 Change only:
 
@@ -339,13 +344,17 @@ warmup test.
 Rationale: the present `2e-4` peak may be too aggressive, particularly for
 Lion. AdamW and Lion should eventually receive separate one-factor LR tuning.
 
-### 4. Geometry-aware deterministic loss
+### 4. Geometry-aware deterministic loss (`qs04_geomphi`)
 
 Implement one coherent replacement for the current three-field mean L1:
 
-- L1 or SmoothL1 for scaled `eta`;
-- `1 - cos(delta_phi)` for angular direction;
-- a small penalty enforcing `sinphi^2 + cosphi^2` near one.
+- scaled-`eta` L1 with internal weight `1/3`;
+- `1 - cos(delta_phi)` with internal weight `2/3`;
+- `(sinphi^2 + cosphi^2 - 1)^2` with internal weight `0.05`.
+
+The task exposes these as separate loss components. The fixed weights are part
+of the geometry feature; the config selects only
+`deterministic_loss_mode: geometry`.
 
 Keep the MDN likelihood, optimizer, matching, architecture, and data unchanged.
 Calibrate the total deterministic contribution against the successful weight-60
@@ -355,7 +364,7 @@ Rationale: stronger deterministic supervision helps, while independent
 `sinphi`/`cosphi` L1 does not directly optimize angular distance or valid unit
 vectors. This requires a focused code change and unit tests.
 
-### 5. Focal object-hit mask loss
+### 5. Focal object-hit mask loss (`qs05_maskfocal`)
 
 Replace mask BCE only:
 
@@ -371,7 +380,7 @@ Leave matching costs unchanged.
 Rationale: object-node assignment is highly imbalanced and absolute exact-match,
 recall, and purity remain low. Focal loss is already supported by the code.
 
-### 6. Intermediate incidence supervision
+### 6. Intermediate incidence supervision (`qs06_incaux`)
 
 Change the incidence task only:
 
@@ -385,7 +394,7 @@ Rationale: incidence is central to the regression proxy but currently receives
 only final-layer supervision. This coherent feature inherently adds incidence
 predictions, matching contributions, and losses at decoder stages.
 
-### 7. Lower classification null weight
+### 7. Lower classification null weight (`qs07_null02`)
 
 Change only the classification task:
 
@@ -397,7 +406,7 @@ Rationale: 600 queries create many null slots, and classification is supervised
 at five stages. Lower null pressure may improve recall, but fake and duplicate
 rates are mandatory counter-metrics.
 
-### 8. Reduce regression cost in Hungarian matching
+### 8. Reduce regression cost in Hungarian matching (`qs08_matchreg3`)
 
 Change only the MDN regression matching cost:
 
@@ -411,7 +420,7 @@ Rationale: early point predictions may dominate final matching at the current
 weight 10. A lower nonzero weight lets class, mask, and incidence structure have
 more influence without removing useful kinematics entirely.
 
-### 9. Disable hard mask-guided decoder attention
+### 9. Disable hard mask-guided decoder attention (`qs09_nomaskattn`)
 
 Change only:
 
@@ -425,7 +434,7 @@ Retain the mask head and mask losses.
 Rationale: low early mask quality may hide relevant nodes from queries. This
 tests routing without conflating it with mask supervision.
 
-### 10. Six decoder layers
+### 10. Six decoder layers (`qs10_dec6`)
 
 Change only:
 
@@ -438,13 +447,34 @@ formation. Additional intermediate classification and mask terms are an
 inherent consequence of this architectural feature. Record memory, step time,
 and final-layer metrics, because aggregate loss will contain more terms.
 
+### 11. Deterministic weight 30 (`qs11_detw30`)
+
+Change only:
+
+```yaml
+deterministic_loss_weight: 30
+```
+
+Rationale: this lower bracket tests whether the gains at weight 60 require the
+full increase, and complements the weight-120 upper bracket.
+
+### 12. Initial MDN scale 0.3 (`qs12_scaleinit03`)
+
+Change only:
+
+```yaml
+initial_scale: 3.0e-1
+```
+
+Rationale: a broader initial one-component Gaussian probes scale calibration
+without increasing mixture capacity. It remains lowest priority because the
+available plots do not directly motivate the direction.
+
 ## Deferred or conditional experiments
 
 These remain scientifically interesting but are lower priority after reviewing
 the component plots:
 
-- **Deterministic weight 30:** run if weight 120 regresses or to identify the
-  smallest weight that retains the gains seen at 60.
 - **Five MDN components (`output_size: 28`):** defer until three components
   improve point estimates, calibration, or physics tails rather than NLL alone.
 - **Student-t mixture likelihood:** defer for the same reason; it targets heavy
@@ -461,15 +491,15 @@ the component plots:
   not a clean first-pass main-effect experiment. Consider it only after the
   completed AdamW comparisons and three-component point-metric review.
 
-## Suggested execution order with two parallel slots
+## Execution order in three-job waves
 
-After the reference-selection gate:
+Run the two-GPU reference and all alternatives in fixed priority order:
 
-1. deterministic weight 120 vs slower warmup;
-2. lower peak LR vs geometry-aware deterministic loss;
-3. focal mask loss vs intermediate incidence supervision;
-4. lower null weight vs reduced regression matching cost;
-5. unmasked decoder attention vs six decoder layers.
+1. `qs00_ref_detw60`, `qs01_detw120`, `qs02_warm20`;
+2. `qs03_lrmax1e4`, `qs04_geomphi`, `qs05_maskfocal`;
+3. `qs06_incaux`, `qs07_null02`, `qs08_matchreg3`;
+4. `qs09_nomaskattn`, `qs10_dec6`, `qs11_detw30`;
+5. `qs12_scaleinit03`.
 
 Do not fold a winner into the next pair during this initial screening pass.
 Every queued run should differ from the same frozen reference by only its named
