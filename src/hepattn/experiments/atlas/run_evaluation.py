@@ -23,7 +23,7 @@ REPO_ROOT = ATLAS_DIR.parents[3]
 EXP_NAME = "MDN_focal"
 # RUN_NAME = "atlas_MDN_jz1234_v0_nopart_reproduce_20260716-T223207" # adamw
 # CKPT_NAME = "epoch=000-val_loss=2.05008-7124.ckpt"
-# CFG_PATH = ATLAS_DIR / "configs" / "base_MDN-AdamW_jz1234.yaml"
+# CFG_PATH = ATLAS_DIR / "configs" / "mdn_adamw_base.yaml"
 RUN_NAME = "atlas_MDN_focal_20260730-T223903"
 CKPT_NAME = "epoch=048-val_loss=4.91068.ckpt"
 CFG_PATH = ATLAS_DIR / "configs" / "base_MDN_focal.yaml"

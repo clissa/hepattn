@@ -23,20 +23,15 @@ partial curves must not be used to choose the final reference model.
 
 Current local configuration files include:
 
-- `src/hepattn/experiments/atlas/configs/base_MDN-Lion_jz1234.yaml`
-- `src/hepattn/experiments/atlas/configs/base_MDN-AdamW_jz1234.yaml`
-- `src/hepattn/experiments/atlas/configs/MDN_lion_3components.yaml`
-- `src/hepattn/experiments/atlas/configs/MDN_lion_highweight_deterministic copy.yaml`
-- `src/hepattn/experiments/atlas/configs/MDN_adamw_3components.yaml`
-- `src/hepattn/experiments/atlas/configs/MDN_adamw_highweight_deterministic.yaml`
+- `src/hepattn/experiments/atlas/configs/mdn_lion_base.yaml`
+- `src/hepattn/experiments/atlas/configs/mdn_adamw_base.yaml`
+- `src/hepattn/experiments/atlas/configs/mdn_lion_k3.yaml`
+- `src/hepattn/experiments/atlas/configs/mdn_lion_detw60.yaml`
+- `src/hepattn/experiments/atlas/configs/mdn_adamw_k3.yaml`
+- `src/hepattn/experiments/atlas/configs/mdn_adamw_detw60.yaml`
 
-Run-metadata cautions:
-
-- The current AdamW high-weight file still has
-  `name: atlas_MDN_lion_highweight_deterministic`, despite selecting AdamW.
-- The current Lion high-weight filename has a `copy` suffix.
-- These do not change the scientific configuration, but names and result
-  directories should be made unambiguous before future launches.
+The filename stem, run name, and output-directory basename are normalized for
+these historical configurations. Their scientific settings are unchanged.
 
 ## Plot-derived observations
 

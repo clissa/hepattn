@@ -1,4 +1,4 @@
-name: atlas_MDN_lion_highweight_deterministic
+name: mdn_adamw_base
 seed_everything: 20260708
 
 data:
@@ -49,7 +49,7 @@ trainer:
   precision: bf16-mixed
   gradient_clip_val: 0.1
   log_every_n_steps: 50
-  default_root_dir: /home/lclissa/projects/hepattn/results/MDN_adamw_highweight_deterministic
+  default_root_dir: /home/lclissa/projects/hepattn/results/quick-search/mdn_adamw_base
   enable_progress_bar: True
 
   logger:
@@ -247,7 +247,7 @@ model:
                 target_object: particle
                 num_components: 1
                 mdn_loss_weight: 1.0
-                deterministic_loss_weight: 60
+                deterministic_loss_weight: 6
                 cost_weight: 10.0
                 use_nodes: true
                 embedding_dim: *dim
@@ -264,4 +264,3 @@ model:
                     output_size: 8
                     hidden_layers: [512, 256, 128, 64, 32]
                 has_intermediate_loss: false
-

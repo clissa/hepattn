@@ -23,7 +23,7 @@ ckpts=("${CKPT_PATH_TUNING}/MDN_jz1234_v0_nopart_reproduce/atlas_MDN_jz1234_v0_n
 # cfg=("${SCRIPT_DIR}/configs/glow_gpu_inference_override.yaml")
 # cfg=("${SCRIPT_DIR}/configs/base_MDN-small_jz1234_inference_override.yaml")
 # cfg=("${SCRIPT_DIR}/configs/config.yaml")
-cfg=("${SCRIPT_DIR}/configs/base_MDN-AdamW_jz1234.yaml")
+cfg=("${SCRIPT_DIR}/configs/mdn_adamw_base.yaml")
 shopt -u nullglob
 
 
