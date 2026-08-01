@@ -27,6 +27,7 @@ def make_task(
     mean_mode: str = "offset",
     scale_floor: float = 1.0e-3,
     initial_scale: float = 1.0e-1,
+    deterministic_loss_mode: str = "l1",
 ) -> IncidenceBasedMixtureRegressionTask:
     scale_path = tmp_path / "scales.yaml"
     scale_path.write_text("{}\n")
@@ -47,6 +48,7 @@ def make_task(
         mean_mode=mean_mode,
         scale_floor=scale_floor,
         initial_scale=initial_scale,
+        deterministic_loss_mode=deterministic_loss_mode,
     )
 
 
@@ -74,6 +76,7 @@ def forward_inputs(batch_size: int = 2, num_queries: int = 3) -> dict[str, torch
         ({"mdn_fields": ["e", "pt"], "deterministic_fields": ["pt", "eta", "sinphi"]}, "disjoint"),
         ({"mdn_fields": ["pt", "e"], "deterministic_fields": ["eta", "sinphi", "cosphi"]}, "field order"),
         ({"mean_mode": "scale"}, "mean_mode"),
+        ({"deterministic_loss_mode": "mse"}, "deterministic_loss_mode"),
         ({"scale_floor": 0.0}, "scale_floor"),
         ({"scale_floor": 0.1, "initial_scale": 0.1}, "initial_scale"),
     ],
@@ -86,6 +89,7 @@ def test_constructor_validation(tmp_path, kwargs, match):
         "mean_mode": "offset",
         "scale_floor": 1.0e-3,
         "initial_scale": 1.0e-1,
+        "deterministic_loss_mode": "l1",
     }
     defaults.update(kwargs)
     with pytest.raises(ValueError, match=match):
@@ -263,6 +267,89 @@ def test_valid_masking_and_weighted_separate_losses(tmp_path):
     expected_nll = torch.tensor([math.log(2 * math.pi), math.log(2 * math.pi) + 1.0]).mean()
     torch.testing.assert_close(losses["mdn_nll"], expected_nll)
     torch.testing.assert_close(losses["deterministic_l1"], torch.tensor(12.0))
+
+
+def test_default_deterministic_loss_remains_mean_l1(tmp_path):
+    task = make_task(tmp_path, [0.0] * 8, mean_mode="absolute")
+    deterministic = torch.tensor([[[3.0, -2.0, 1.0]]])
+    target_deterministic = torch.tensor([[[0.0, 1.0, -1.0]]])
+    targets = loss_targets(torch.zeros(1, 1, 2), target_deterministic, torch.ones(1, 1, dtype=torch.bool))
+
+    losses = task.loss(
+        loss_outputs(torch.zeros(1, 1, 1), torch.zeros(1, 1, 1, 2), torch.ones(1, 1, 1, 2), deterministic),
+        targets,
+    )
+
+    assert task.deterministic_loss_mode == "l1"
+    assert losses.keys() == {"mdn_nll", "deterministic_l1"}
+    torch.testing.assert_close(losses["deterministic_l1"], torch.tensor(16.0))
+
+
+def test_geometry_loss_wraps_phi_at_pi(tmp_path):
+    task = make_task(tmp_path, [0.0] * 8, mean_mode="absolute", deterministic_loss_mode="geometry")
+    epsilon = 0.01
+    pred_phi = -math.pi + epsilon
+    target_phi = math.pi - epsilon
+    deterministic = torch.tensor([[[0.0, math.sin(pred_phi), math.cos(pred_phi)]]])
+    target_deterministic = torch.tensor([[[0.0, math.sin(target_phi), math.cos(target_phi)]]])
+    targets = loss_targets(torch.zeros(1, 1, 2), target_deterministic, torch.ones(1, 1, dtype=torch.bool))
+
+    losses = task.loss(
+        loss_outputs(torch.zeros(1, 1, 1), torch.zeros(1, 1, 1, 2), torch.ones(1, 1, 1, 2), deterministic),
+        targets,
+    )
+
+    expected_phi = 6.0 * task.geometry_phi_weight * (1.0 - math.cos(2.0 * epsilon))
+    torch.testing.assert_close(losses["deterministic_eta_l1"], torch.tensor(0.0))
+    torch.testing.assert_close(losses["deterministic_phi"], torch.tensor(expected_phi))
+    torch.testing.assert_close(losses["deterministic_unit_circle"], torch.tensor(0.0), atol=1.0e-12, rtol=0.0)
+
+
+def test_geometry_loss_penalizes_non_unit_prediction(tmp_path):
+    task = make_task(tmp_path, [0.0] * 8, mean_mode="absolute", deterministic_loss_mode="geometry")
+    deterministic = torch.tensor([[[0.0, 0.0, 2.0]]])
+    target_deterministic = torch.tensor([[[0.0, 0.0, 1.0]]])
+    targets = loss_targets(torch.zeros(1, 1, 2), target_deterministic, torch.ones(1, 1, dtype=torch.bool))
+
+    losses = task.loss(
+        loss_outputs(torch.zeros(1, 1, 1), torch.zeros(1, 1, 1, 2), torch.ones(1, 1, 1, 2), deterministic),
+        targets,
+    )
+
+    expected = 6.0 * task.geometry_unit_circle_weight * (4.0 - 1.0) ** 2
+    torch.testing.assert_close(losses["deterministic_phi"], torch.tensor(0.0))
+    torch.testing.assert_close(losses["deterministic_unit_circle"], torch.tensor(expected))
+
+
+def test_geometry_loss_masks_invalid_nan_targets(tmp_path):
+    task = make_task(tmp_path, [0.0] * 8, mean_mode="absolute", deterministic_loss_mode="geometry")
+    deterministic = torch.tensor([[[0.0, 0.0, 1.0], [10.0, 2.0, 3.0]]])
+    target_deterministic = torch.tensor([[[0.0, 0.0, 1.0], [torch.nan, torch.nan, torch.nan]]])
+    valid = torch.tensor([[True, False]])
+    targets = loss_targets(torch.zeros(1, 2, 2), target_deterministic, valid)
+    outputs = loss_outputs(torch.zeros(1, 2, 1), torch.zeros(1, 2, 1, 2), torch.ones(1, 2, 1, 2), deterministic)
+
+    losses = task.loss(outputs, targets)
+    per_element = task.loss_per_element(outputs, targets)
+
+    assert all(torch.isfinite(loss) and loss.item() == 0.0 for name, loss in losses.items() if name != "mdn_nll")
+    assert all(value[~valid].item() == 0.0 for name, value in per_element.items() if name != "mdn_nll")
+
+
+def test_geometry_loss_has_finite_deterministic_gradients(tmp_path):
+    task = make_task(tmp_path, [0.0] * 8, mean_mode="absolute", deterministic_loss_mode="geometry")
+    deterministic = torch.tensor([[[0.5, 0.5, 0.5]]], requires_grad=True)
+    target_deterministic = torch.tensor([[[0.0, 1.0, 0.0]]])
+    targets = loss_targets(torch.zeros(1, 1, 2), target_deterministic, torch.ones(1, 1, dtype=torch.bool))
+
+    losses = task.loss(
+        loss_outputs(torch.zeros(1, 1, 1), torch.zeros(1, 1, 1, 2), torch.ones(1, 1, 1, 2), deterministic),
+        targets,
+    )
+    sum(losses.values()).backward()
+
+    assert torch.isfinite(deterministic.grad).all()
+    assert torch.count_nonzero(deterministic.grad) == deterministic.numel()
 
 
 def test_empty_valid_batch_returns_differentiable_zeros(tmp_path):

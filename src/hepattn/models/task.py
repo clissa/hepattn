@@ -19,6 +19,7 @@ REGRESSION_LOSS_FNS = {
 
 # Define the literal type for regression losses based on the dictionary keys
 RegressionLossType = Literal["l1", "l2", "smooth_l1"]
+DeterministicLossMode = Literal["l1", "geometry"]
 
 
 class Task(nn.Module, ABC):
@@ -1392,6 +1393,10 @@ class IncidenceBasedRegressionTask(RegressionTask):
 class IncidenceBasedMixtureRegressionTask(IncidenceBasedRegressionTask):
     """Incidence-based diagonal Gaussian-mixture regression in scaled space."""
 
+    geometry_eta_weight = 1.0 / 3.0
+    geometry_phi_weight = 2.0 / 3.0
+    geometry_unit_circle_weight = 0.05
+
     def __init__(
         self,
         name: str,
@@ -1410,6 +1415,7 @@ class IncidenceBasedMixtureRegressionTask(IncidenceBasedRegressionTask):
         num_components: int = 1,
         mdn_loss_weight: float = 1.0,
         deterministic_loss_weight: float = 6.0,
+        deterministic_loss_mode: DeterministicLossMode = "l1",
         mean_mode: str = "offset",
         scale_floor: float = 1.0e-3,
         initial_scale: float = 1.0e-1,
@@ -1426,6 +1432,8 @@ class IncidenceBasedMixtureRegressionTask(IncidenceBasedRegressionTask):
             raise ValueError("MDN and deterministic field order must be [e, pt, eta, sinphi, cosphi]")
         if mean_mode not in {"offset", "absolute"}:
             raise ValueError("mean_mode must be 'offset' or 'absolute'")
+        if deterministic_loss_mode not in {"l1", "geometry"}:
+            raise ValueError("deterministic_loss_mode must be 'l1' or 'geometry'")
         if scale_floor <= 0:
             raise ValueError("scale_floor must be positive")
         if initial_scale <= scale_floor:
@@ -1474,6 +1482,7 @@ class IncidenceBasedMixtureRegressionTask(IncidenceBasedRegressionTask):
         self.num_deterministic_fields = num_deterministic_fields
         self.mdn_loss_weight = mdn_loss_weight
         self.deterministic_loss_weight = deterministic_loss_weight
+        self.deterministic_loss_mode = deterministic_loss_mode
         self.mean_mode = mean_mode
         self.scale_floor = scale_floor
         self.initial_scale = initial_scale
@@ -1544,7 +1553,7 @@ class IncidenceBasedMixtureRegressionTask(IncidenceBasedRegressionTask):
             self.output_object + "_deterministic_regr": deterministic,
         }
 
-    def _loss_per_object(self, outputs: dict[str, Tensor], targets: dict[str, Tensor]) -> tuple[Tensor, Tensor]:
+    def _loss_per_object(self, outputs: dict[str, Tensor], targets: dict[str, Tensor]) -> tuple[Tensor, dict[str, Tensor]]:
         target_mdn = torch.stack([targets[self.target_object + "_" + field] for field in self.mdn_fields], dim=-1).to(torch.float32)
         target_deterministic = torch.stack(
             [targets[self.target_object + "_" + field] for field in self.deterministic_fields],
@@ -1561,8 +1570,24 @@ class IncidenceBasedMixtureRegressionTask(IncidenceBasedRegressionTask):
         standardized = (target_mdn.unsqueeze(-2) - means) / scales
         component_log_prob = -0.5 * (standardized.square() + 2 * scales.log() + math.log(2 * math.pi)).sum(dim=-1)
         mdn_nll = -torch.logsumexp(log_weights + component_log_prob, dim=-1)
-        deterministic_l1 = torch.nn.functional.l1_loss(deterministic, target_deterministic, reduction="none").mean(dim=-1)
-        return mdn_nll, deterministic_l1
+        if self.deterministic_loss_mode == "l1":
+            deterministic_losses = {
+                "deterministic_l1": torch.nn.functional.l1_loss(
+                    deterministic,
+                    target_deterministic,
+                    reduction="none",
+                ).mean(dim=-1)
+            }
+        else:
+            pred_phi = torch.atan2(deterministic[..., 1], deterministic[..., 2])
+            target_phi = torch.atan2(target_deterministic[..., 1], target_deterministic[..., 2])
+            pred_norm_sq = deterministic[..., 1].square() + deterministic[..., 2].square()
+            deterministic_losses = {
+                "deterministic_eta_l1": self.geometry_eta_weight * (deterministic[..., 0] - target_deterministic[..., 0]).abs(),
+                "deterministic_phi": self.geometry_phi_weight * (1.0 - torch.cos(pred_phi - target_phi)),
+                "deterministic_unit_circle": self.geometry_unit_circle_weight * (pred_norm_sq - 1.0).square(),
+            }
+        return mdn_nll, deterministic_losses
 
     def metrics(self, preds: dict[str, Tensor], targets: dict[str, Tensor]) -> dict[str, Tensor]:
         metrics = super().metrics(preds, targets)
@@ -1581,24 +1606,28 @@ class IncidenceBasedMixtureRegressionTask(IncidenceBasedRegressionTask):
         return {"regr_l1": self.cost_weight * costs}
 
     def loss(self, outputs: dict[str, Tensor], targets: dict[str, Tensor]) -> dict[str, Tensor]:
-        mdn_nll, deterministic_l1 = self._loss_per_object(outputs, targets)
+        mdn_nll, deterministic_losses = self._loss_per_object(outputs, targets)
         mask = targets[self.target_object + "_valid"]
         denominator = mask.sum().clamp_min(1)
         mdn_loss = torch.where(mask, mdn_nll, torch.zeros_like(mdn_nll)).sum() / denominator
-        deterministic_loss = torch.where(mask, deterministic_l1, torch.zeros_like(deterministic_l1)).sum() / denominator
-        return {
+        losses = {
             "mdn_nll": self.mdn_loss_weight * mdn_loss,
-            "deterministic_l1": self.deterministic_loss_weight * deterministic_loss,
         }
+        for name, loss_per_object in deterministic_losses.items():
+            loss = torch.where(mask, loss_per_object, torch.zeros_like(loss_per_object)).sum() / denominator
+            losses[name] = self.deterministic_loss_weight * loss
+        return losses
 
     def loss_per_element(self, outputs: dict[str, Tensor], targets: dict[str, Tensor]) -> dict[str, Tensor]:
-        mdn_nll, deterministic_l1 = self._loss_per_object(outputs, targets)
+        mdn_nll, deterministic_losses = self._loss_per_object(outputs, targets)
         mask = targets[self.target_object + "_valid"]
-        return {
+        losses = {
             "mdn_nll": torch.where(mask, self.mdn_loss_weight * mdn_nll, torch.zeros_like(mdn_nll)),
-            "deterministic_l1": torch.where(
-                mask,
-                self.deterministic_loss_weight * deterministic_l1,
-                torch.zeros_like(deterministic_l1),
-            ),
         }
+        for name, loss_per_object in deterministic_losses.items():
+            losses[name] = torch.where(
+                mask,
+                self.deterministic_loss_weight * loss_per_object,
+                torch.zeros_like(loss_per_object),
+            )
+        return losses
