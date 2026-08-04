@@ -1,4 +1,4 @@
-name: qs05_maskfocal
+name: qs08_matchreg3
 seed_everything: 20260708
 
 data:
@@ -50,7 +50,7 @@ trainer:
   precision: bf16-mixed
   gradient_clip_val: 0.1
   log_every_n_steps: 50
-  default_root_dir: /home/lclissa/projects/hepattn/results/quick-search/qs05_maskfocal
+  default_root_dir: /home/lclissa/projects/hepattn/results/quick-search/round_1/qs08_matchreg3
   enable_progress_bar: True
 
   logger:
@@ -201,9 +201,8 @@ model:
                 target_object: particle
                 pred_threshold: 0.1
                 logit_scale: 4
-                focal_gamma: 2.0
                 losses:
-                  mask_focal: 5.0
+                  mask_bce: 5.0
                   mask_dice: 1.0
                 costs:
                   # mask_bce: 5.0
@@ -250,7 +249,7 @@ model:
                 num_components: 1
                 mdn_loss_weight: 1.0
                 deterministic_loss_weight: 60
-                cost_weight: 10.0
+                cost_weight: 3.0
                 use_nodes: true
                 embedding_dim: *dim
                 mean_mode: offset

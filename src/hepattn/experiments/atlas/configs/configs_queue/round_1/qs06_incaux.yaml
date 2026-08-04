@@ -1,4 +1,4 @@
-name: mdn_lion_detw60
+name: qs06_incaux
 seed_everything: 20260708
 
 data:
@@ -36,20 +36,21 @@ data:
   num_test: -1
   num_test_per_epoch: null
 
-  batch_size: 112
+  batch_size: 80
   incidence_cutval: 0.01
 
   scale_dict_path: &scale_dict_path configs/atlas_var_transform.yaml
 
 trainer:
-  max_epochs: 15
+  max_epochs: 22
   accelerator: gpu
-  devices: 3
+  devices: 2
+  accumulate_grad_batches: 2
   use_distributed_sampler: False
   precision: bf16-mixed
   gradient_clip_val: 0.1
   log_every_n_steps: 50
-  default_root_dir: /home/lclissa/projects/hepattn/results/quick-search/mdn_lion_detw60
+  default_root_dir: /home/lclissa/projects/hepattn/results/quick-search/round_1/qs06_incaux
   enable_progress_bar: True
 
   logger:
@@ -234,7 +235,7 @@ model:
                     input_size: *dim
                     output_size: *dim
                     hidden_layers: [*dim]
-                has_intermediate_loss: false
+                has_intermediate_loss: true
 
             - class_path: hepattn.models.task.IncidenceBasedMixtureRegressionTask
               init_args:

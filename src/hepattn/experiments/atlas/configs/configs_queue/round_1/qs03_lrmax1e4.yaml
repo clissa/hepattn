@@ -1,4 +1,4 @@
-name: qs12_scaleinit03
+name: qs03_lrmax1e4
 seed_everything: 20260708
 
 data:
@@ -50,7 +50,7 @@ trainer:
   precision: bf16-mixed
   gradient_clip_val: 0.1
   log_every_n_steps: 50
-  default_root_dir: /home/lclissa/projects/hepattn/results/quick-search/qs12_scaleinit03
+  default_root_dir: /home/lclissa/projects/hepattn/results/quick-search/round_1/qs03_lrmax1e4
   enable_progress_bar: True
 
   logger:
@@ -92,7 +92,7 @@ model:
   #   skip_scheduler: false
   lrs_config:
     initial: 2.0e-6
-    max: 2.0e-4
+    max: 1.0e-4
     end: 2.0e-6
     pct_start: 0.05
     weight_decay: 1.0e-2
@@ -254,7 +254,7 @@ model:
                 embedding_dim: *dim
                 mean_mode: offset
                 scale_floor: 1.0e-3
-                initial_scale: 3.0e-1
+                initial_scale: 1.0e-1
                 scale_dict_path: *scale_dict_path
                 net:
                   class_path: hepattn.models.Dense

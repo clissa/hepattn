@@ -23,12 +23,12 @@ partial curves must not be used to choose the final reference model.
 
 Current local configuration files include:
 
-- `src/hepattn/experiments/atlas/configs/mdn_lion_base.yaml`
-- `src/hepattn/experiments/atlas/configs/mdn_adamw_base.yaml`
-- `src/hepattn/experiments/atlas/configs/mdn_lion_k3.yaml`
-- `src/hepattn/experiments/atlas/configs/mdn_lion_detw60.yaml`
-- `src/hepattn/experiments/atlas/configs/mdn_adamw_k3.yaml`
-- `src/hepattn/experiments/atlas/configs/mdn_adamw_detw60.yaml`
+- `src/hepattn/experiments/atlas/configs/configs_queue/round_0/mdn_lion_base.yaml`
+- `src/hepattn/experiments/atlas/configs/configs_queue/round_0/mdn_adamw_base.yaml`
+- `src/hepattn/experiments/atlas/configs/configs_queue/round_0/mdn_lion_k3.yaml`
+- `src/hepattn/experiments/atlas/configs/configs_queue/round_0/mdn_lion_detw60.yaml`
+- `src/hepattn/experiments/atlas/configs/configs_queue/round_0/mdn_adamw_k3.yaml`
+- `src/hepattn/experiments/atlas/configs/configs_queue/round_0/mdn_adamw_detw60.yaml`
 
 The filename stem, run name, and output-directory basename are normalized for
 these historical configurations. Their scientific settings are unchanged.

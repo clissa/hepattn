@@ -1,4 +1,4 @@
-name: qs07_null02
+name: qs04_geomphi
 seed_everything: 20260708
 
 data:
@@ -50,7 +50,7 @@ trainer:
   precision: bf16-mixed
   gradient_clip_val: 0.1
   log_every_n_steps: 50
-  default_root_dir: /home/lclissa/projects/hepattn/results/quick-search/qs07_null02
+  default_root_dir: /home/lclissa/projects/hepattn/results/quick-search/round_1/qs04_geomphi
   enable_progress_bar: True
 
   logger:
@@ -187,7 +187,7 @@ model:
                     activation: torch.nn.SiLU
                     output_size: 6
                     hidden_layers: [256, 128, 32]
-                null_weight: 0.2
+                null_weight: 0.5
                 loss_class_weights: [1.0, 3.0, 8.0, 1.5, 1.0]
                 mask_queries: false
                 has_intermediate_loss: true
@@ -249,6 +249,7 @@ model:
                 num_components: 1
                 mdn_loss_weight: 1.0
                 deterministic_loss_weight: 60
+                deterministic_loss_mode: geometry
                 cost_weight: 10.0
                 use_nodes: true
                 embedding_dim: *dim

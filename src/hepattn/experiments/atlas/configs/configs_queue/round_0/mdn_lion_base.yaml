@@ -1,4 +1,4 @@
-name: qs06_incaux
+name: mdn_lion_base
 seed_everything: 20260708
 
 data:
@@ -36,21 +36,20 @@ data:
   num_test: -1
   num_test_per_epoch: null
 
-  batch_size: 80
+  batch_size: 112
   incidence_cutval: 0.01
 
   scale_dict_path: &scale_dict_path configs/atlas_var_transform.yaml
 
 trainer:
-  max_epochs: 22
+  max_epochs: 15
   accelerator: gpu
-  devices: 2
-  accumulate_grad_batches: 2
+  devices: 3
   use_distributed_sampler: False
   precision: bf16-mixed
   gradient_clip_val: 0.1
   log_every_n_steps: 50
-  default_root_dir: /home/lclissa/projects/hepattn/results/quick-search/qs06_incaux
+  default_root_dir: /home/lclissa/projects/hepattn/results/quick-search/round_0/mdn_lion_base
   enable_progress_bar: True
 
   logger:
@@ -235,7 +234,7 @@ model:
                     input_size: *dim
                     output_size: *dim
                     hidden_layers: [*dim]
-                has_intermediate_loss: true
+                has_intermediate_loss: false
 
             - class_path: hepattn.models.task.IncidenceBasedMixtureRegressionTask
               init_args:
@@ -248,7 +247,7 @@ model:
                 target_object: particle
                 num_components: 1
                 mdn_loss_weight: 1.0
-                deterministic_loss_weight: 60
+                deterministic_loss_weight: 6
                 cost_weight: 10.0
                 use_nodes: true
                 embedding_dim: *dim

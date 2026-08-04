@@ -20,13 +20,13 @@ ATLAS_DIR = Path(__file__).resolve().parent
 REPO_ROOT = ATLAS_DIR.parents[3]
 
 # Editable defaults. Matching command-line arguments take precedence.
-EXP_NAME = "quick-search/qs07_null02"
+EXP_NAME = "quick-search/round_1/qs07_null02"
 # RUN_NAME = "atlas_MDN_jz1234_v0_nopart_reproduce_20260716-T223207" # adamw
 # CKPT_NAME = "epoch=000-val_loss=2.05008-7124.ckpt"
 # CFG_PATH = ATLAS_DIR / "configs" / "mdn_adamw_base.yaml"
 RUN_NAME = "qs07_null02_20260802-T044406"
 CKPT_NAME = "epoch=021-val_loss=6.73009.ckpt"
-CFG_PATH = ATLAS_DIR / "configs/configs_queue" / "qs07_null02.yaml"
+CFG_PATH = ATLAS_DIR / "configs/configs_queue/round_1" / "qs07_null02.yaml"
 
 IND_THRESHOLD = 0.50
 ASSOC_TRACK_PT_THRESHOLD = 100

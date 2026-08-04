@@ -1,4 +1,4 @@
-name: qs03_lrmax1e4
+name: qs09_nomaskattn
 seed_everything: 20260708
 
 data:
@@ -50,7 +50,7 @@ trainer:
   precision: bf16-mixed
   gradient_clip_val: 0.1
   log_every_n_steps: 50
-  default_root_dir: /home/lclissa/projects/hepattn/results/quick-search/qs03_lrmax1e4
+  default_root_dir: /home/lclissa/projects/hepattn/results/quick-search/round_1/qs09_nomaskattn
   enable_progress_bar: True
 
   logger:
@@ -92,7 +92,7 @@ model:
   #   skip_scheduler: false
   lrs_config:
     initial: 2.0e-6
-    max: 1.0e-4
+    max: 2.0e-4
     end: 2.0e-6
     pct_start: 0.05
     weight_decay: 1.0e-2
@@ -149,7 +149,7 @@ model:
       decoder:
         num_decoder_layers: 4
         num_queries: *num_particles
-        mask_attention: true
+        mask_attention: false
         use_query_masks: false
         decoder_layer_config:
           dim: *dim
