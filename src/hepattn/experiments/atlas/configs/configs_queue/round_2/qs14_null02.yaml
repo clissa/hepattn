@@ -30,19 +30,19 @@ data:
 
   num_workers: 16
   num_train: -1
-  num_train_per_epoch: 12_000
+  num_train_per_epoch: 15_360
   num_val: -1
   num_val_per_epoch: 6_000
   num_test: -1
   num_test_per_epoch: null
 
-  batch_size: 112
+  batch_size: 96
   incidence_cutval: 0.01
 
   scale_dict_path: &scale_dict_path configs/atlas_var_transform.yaml
 
 trainer:
-  max_epochs: 30
+  max_epochs: 42
   accelerator: gpu
   devices: 2
   accumulate_grad_batches: 2
