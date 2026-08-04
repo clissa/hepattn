@@ -3,25 +3,20 @@ set -euo pipefail
 
 REPO_ROOT=/home/lclissa/projects/hepattn
 ATLAS_DIR="${REPO_ROOT}/src/hepattn/experiments/atlas"
-CONFIG_DIR="${ATLAS_DIR}/configs/configs_queue"
-LOG_DIR="${REPO_ROOT}/logs/quick-search"
+# Update this identifier and the experiment list below for each new round.
+ROUND=round_2
+CONFIG_DIR="${ATLAS_DIR}/configs/configs_queue/${ROUND}"
+LOG_DIR="${REPO_ROOT}/logs/quick-search/${ROUND}"
 PYTHON="${REPO_ROOT}/.hepattn/bin/python"
 BASE_PORT="${QS_BASE_PORT:-29500}"
 
 EXPERIMENTS=(
-  qs00_ref_detw60
-  qs01_detw120
-  qs02_warm20
-  qs03_lrmax1e4
-  qs04_geomphi
-  qs05_maskfocal
-  qs06_incaux
-  qs07_null02
-  qs08_matchreg3
-  qs09_nomaskattn
-  qs10_dec6
-  qs11_detw30
-  qs12_scaleinit03
+  qs13_ref_detw60
+  qs14_null02
+  qs15_incaux
+  qs16_detw30
+  qs17_matchreg3
+  qs18_null02_incaux
 )
 GPU_PAIRS=("0,1" "2,3" "4,5")
 
@@ -144,7 +139,7 @@ for ((wave_start = 0; wave_start < ${#EXPERIMENTS[@]}; wave_start += 3)); do
     experiment_id=${EXPERIMENTS[index]}
     gpu_pair=${GPU_PAIRS[slot]}
     port=$((BASE_PORT + slot))
-    relative_config="configs/configs_queue/${experiment_id}.yaml"
+    relative_config="configs/configs_queue/${ROUND}/${experiment_id}.yaml"
     log="${LOG_DIR}/${experiment_id}.log"
     started_at=$(date --iso-8601=seconds)
 
@@ -191,7 +186,7 @@ for ((wave_start = 0; wave_start < ${#EXPERIMENTS[@]}; wave_start += 3)); do
 done
 
 if ${dry_run}; then
-  echo "Dry run complete: 13 configs in 5 waves; no training processes started."
+  echo "Dry run complete: ${#EXPERIMENTS[@]} configs in ${wave} waves; no training processes started."
 else
   echo "Quick search complete: all ${#EXPERIMENTS[@]} jobs succeeded."
 fi
