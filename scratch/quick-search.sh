@@ -4,19 +4,16 @@ set -euo pipefail
 REPO_ROOT=/home/lclissa/projects/hepattn
 ATLAS_DIR="${REPO_ROOT}/src/hepattn/experiments/atlas"
 # Update this identifier and the experiment list below for each new round.
-ROUND=round_2
+ROUND=round_3
 CONFIG_DIR="${ATLAS_DIR}/configs/configs_queue/${ROUND}"
 LOG_DIR="${REPO_ROOT}/logs/quick-search/${ROUND}"
 PYTHON="${REPO_ROOT}/.hepattn/bin/python"
 BASE_PORT="${QS_BASE_PORT:-29500}"
 
 EXPERIMENTS=(
-  qs13_ref_detw60
-  qs14_null02
-  qs15_incaux
-  qs16_detw30
-  qs17_matchreg3
-  qs18_null02_incaux
+  qs19_null04_incaux
+  qs20_null035_incaux
+  qs21_incaux_detw30
 )
 GPU_PAIRS=("0,1" "2,3" "4,5")
 
