@@ -32,10 +32,10 @@ data:
   num_workers: 8
   num_train: -1
   # Per rank: 6 x 23,040 = 138,240 nominal events/virtual epoch (~9% of train).
-  num_train_per_epoch: 23_040
+  num_train_per_epoch: 46_080 
   num_val: -1
   # Per rank: 6 x 6,336 = 38,016 nominal events/virtual epoch (~20% of val).
-  num_val_per_epoch: 6_336
+  num_val_per_epoch: 19_008
   num_test: -1
   num_test_per_epoch: null
 
