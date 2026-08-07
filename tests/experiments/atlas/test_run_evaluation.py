@@ -1,8 +1,10 @@
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from hepattn.experiments.atlas import run_evaluation
+from hepattn.experiments.atlas.performance import reader
 
 
 def make_environment(tmp_path, split="val"):
@@ -146,7 +148,7 @@ def test_run_evaluation_stops_if_prediction_is_missing(tmp_path, monkeypatch):
     monkeypatch.setattr(run_evaluation.subprocess, "run", lambda *_args, **_kwargs: None)
     reconstruction_called = False
 
-    def fake_reconstruction(_paths):
+    def fake_reconstruction(_paths, *_args):
         nonlocal reconstruction_called
         reconstruction_called = True
 
@@ -165,7 +167,7 @@ def test_run_evaluation_runs_reconstruction_after_prediction(tmp_path, monkeypat
         calls.append("inference")
         checkpoint.with_name("epoch=001__test.root").touch()
 
-    def fake_reconstruction(paths):
+    def fake_reconstruction(paths, *_args):
         calls.append(("reconstruction", paths.prediction))
         return 1000
 
@@ -296,3 +298,82 @@ def test_resolve_truth_sources_returns_original_list_when_all_files_exist(tmp_pa
 
     assert resolved_list == source_list
     assert not (tmp_path / "results").exists()
+
+
+def test_jet_alignment_is_strict_by_default():
+    target_keys = np.array([10, 20, 30])
+
+    with pytest.raises(ValueError, match="cannot align jet collections"):
+        reader._jet_alignment(target_keys, {10: 2, 30: 0})  # noqa: SLF001
+
+
+def test_jet_alignment_skips_missing_events_within_limit(capsys):
+    target_keys = np.array([10, 20, 30, 40])
+
+    order, keep = reader._jet_alignment(  # noqa: SLF001
+        target_keys,
+        {10: 2, 20: 0, 30: 1},
+        allow_missing=True,
+        max_missing_pct=25,
+        num_jet_files=4,
+    )
+
+    assert order.tolist() == [2, 0, 1]
+    assert keep.tolist() == [True, True, True, False]
+    warning = capsys.readouterr().out
+    assert "1 of 4 truth event keys (25.00%)" in warning
+    assert "4 jets_path file(s)" in warning
+
+
+def test_jet_alignment_blocks_when_missing_events_exceed_limit():
+    target_keys = np.array([10, 20, 30, 40])
+
+    with pytest.raises(ValueError, match=r"exceeds the allowed maximum of 10\.00%"):
+        reader._jet_alignment(target_keys, {10: 0, 20: 1, 30: 2}, allow_missing=True)  # noqa: SLF001
+
+
+def test_parse_args_accepts_new_modes_and_missing_jet_options():
+    args = run_evaluation.parse_args([
+        "--inference-only",
+        "--allow-missing-truth-jets",
+        "--max-missing-truth-jets-pct",
+        "7.5",
+    ])
+
+    assert args.inference_only
+    assert not args.reco_only
+    assert args.allow_missing_truth_jets
+    assert args.max_missing_truth_jets_pct == 7.5
+
+    with pytest.raises(SystemExit):
+        run_evaluation.parse_args(["--inference-only", "--reco-only"])
+
+
+def test_run_evaluation_inference_only_skips_reconstruction(tmp_path, monkeypatch):
+    env, data, checkpoint, config = make_paths(tmp_path)
+    monkeypatch.setattr(run_evaluation.os, "environ", env)
+    reconstruction_called = False
+
+    def fake_inference(*_args, **_kwargs):
+        checkpoint.with_name("epoch=001__test.root").touch()
+
+    def fake_reconstruction(*_args):
+        nonlocal reconstruction_called
+        reconstruction_called = True
+
+    monkeypatch.setattr(run_evaluation.subprocess, "run", fake_inference)
+    monkeypatch.setattr(run_evaluation, "run_reconstruction_evaluation", fake_reconstruction)
+
+    run_evaluation.run_evaluation("experiment", "run", checkpoint.name, config, data, 1000, "gpu", inference_only=True)
+
+    assert not reconstruction_called
+
+
+def test_run_evaluation_reco_only_skips_inference(tmp_path, monkeypatch):
+    env, data, checkpoint, config = make_paths(tmp_path)
+    checkpoint.with_name("epoch=001__test.root").touch()
+    monkeypatch.setattr(run_evaluation.os, "environ", env)
+    monkeypatch.setattr(run_evaluation.subprocess, "run", lambda *_args, **_kwargs: pytest.fail("inference ran"))
+    monkeypatch.setattr(run_evaluation, "run_reconstruction_evaluation", lambda *_args: 1000)
+
+    run_evaluation.run_evaluation("experiment", "run", checkpoint.name, config, data, 1000, "gpu", reco_only=True)
