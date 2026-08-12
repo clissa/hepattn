@@ -1,5 +1,4 @@
 from lightning.pytorch.loggers import CometLogger
-from lightning.pytorch.utilities.rank_zero import rank_zero_only
 
 
 class FixedCometLogger(CometLogger):
@@ -13,17 +12,4 @@ class FixedCometLogger(CometLogger):
         if save_dir is None:
             save_dir = offline_directory
 
-        self._forced_name = experiment_name or name
-        if self._forced_name is not None:
-            kwargs["name"] = self._forced_name
-
-        super().__init__(save_dir=save_dir, **kwargs)
-
-    @rank_zero_only
-    def _create_experiment(self) -> None:
-        super()._create_experiment()
-        if self._forced_name and self._experiment is not None:
-            try:
-                self._experiment.set_name(self._forced_name)
-            except Exception as e:
-                print(f"FixedCometLogger: failed to set experiment name: {e}")
+        super().__init__(save_dir=save_dir, experiment_name=experiment_name or name, **kwargs)

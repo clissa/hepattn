@@ -20,13 +20,28 @@ ATLAS_DIR = Path(__file__).resolve().parent
 REPO_ROOT = ATLAS_DIR.parents[3]
 
 # Editable defaults. Matching command-line arguments take precedence.
-EXP_NAME = "MDN_focal"
+# EXP_NAME = "quick-search/round_1/qs07_null02"
+# EXP_NAME = "quick-search/round_2/qs18_null02_incaux"
+# EXP_NAME = "quick-search/round_2/qs15_incaux"
+# EXP_NAME = "quick-search/round_2/qs16_detw30"
+EXP_NAME = "quick-search/round_3/qs20_null035_incaux"
 # RUN_NAME = "atlas_MDN_jz1234_v0_nopart_reproduce_20260716-T223207" # adamw
 # CKPT_NAME = "epoch=000-val_loss=2.05008-7124.ckpt"
-# CFG_PATH = ATLAS_DIR / "configs" / "base_MDN-AdamW_jz1234.yaml"
-RUN_NAME = "atlas_MDN_focal_20260730-T223903"
-CKPT_NAME = "epoch=048-val_loss=4.91068.ckpt"
-CFG_PATH = ATLAS_DIR / "configs" / "base_MDN_focal.yaml"
+# CFG_PATH = ATLAS_DIR / "configs" / "mdn_adamw_base.yaml"
+# RUN_NAME = "qs07_null02_20260802-T044406"
+# RUN_NAME = "qs18_null02_incaux_20260805-T155821"
+# RUN_NAME = "qs15_incaux_20260804-T023516"
+# RUN_NAME = "qs16_detw30_20260805-T081555"
+RUN_NAME = "qs20_null035_incaux_20260806-T131420"
+# CKPT_NAME = "epoch=021-val_loss=6.73009.ckpt"
+# CKPT_NAME = "epoch=041-val_loss=4.40372.ckpt"
+# CKPT_NAME = "epoch=038-val_loss=4.80319.ckpt"
+# CKPT_NAME = "epoch=041-val_loss=3.00319.ckpt"
+CKPT_NAME = "epoch=041-val_loss=4.74510.ckpt"
+# CFG_PATH = ATLAS_DIR / "configs/configs_queue/round_1" / "qs07_null02.yaml"
+# CFG_PATH = ATLAS_DIR / "configs/configs_queue/round_2" / "qs18_null02_incaux.yaml"
+# CFG_PATH = ATLAS_DIR / "configs/configs_queue/round_2" / f"{EXP_NAME.split('/')[-1]}.yaml"
+CFG_PATH = ATLAS_DIR / "configs/configs_queue/round_3" / f"{EXP_NAME.split('/')[-1]}.yaml"
 
 IND_THRESHOLD = 0.50
 ASSOC_TRACK_PT_THRESHOLD = 100
@@ -69,6 +84,13 @@ def validate_num_events(value: int | str) -> int:
     if value == -1 or value > 0:
         return value
     raise argparse.ArgumentTypeError("num-events must be -1 or a positive integer")
+
+
+def validate_percentage(value: float | str) -> float:
+    value = float(value)
+    if 0 <= value <= 100:
+        return value
+    raise argparse.ArgumentTypeError("percentage must be between 0 and 100")
 
 
 def infer_truth_sources(data_path: Path) -> Path:
@@ -213,7 +235,11 @@ def _track_substituted(is_charged, particles, tracks, tag):
     }
 
 
-def run_reconstruction_evaluation(paths: EvaluationPaths) -> int:
+def run_reconstruction_evaluation(
+    paths: EvaluationPaths,
+    allow_missing_truth_jets: bool = False,
+    max_missing_truth_jets_pct: float = 10.0,
+) -> int:
     import awkward as ak
     import matplotlib.pyplot as plt
     import numpy as np
@@ -230,7 +256,15 @@ def run_reconstruction_evaluation(paths: EvaluationPaths) -> int:
     from hepattn.experiments.atlas.performance.reader import load_truth_atlas
 
     paths.plots.mkdir(parents=True, exist_ok=True)
-    truth = load_truth_atlas(str(paths.truth_sources), topo=False, fiducial_cuts=False, cache_path=None, jets_path=paths.truth_jets)
+    truth = load_truth_atlas(
+        str(paths.truth_sources),
+        topo=False,
+        fiducial_cuts=False,
+        cache_path=None,
+        jets_path=paths.truth_jets,
+        allow_missing_jets=allow_missing_truth_jets,
+        max_missing_jets_pct=max_missing_truth_jets_pct,
+    )
     perf = PerformanceATLAS(
         truth_path=truth,
         pred_paths={"mpflow": paths.prediction},
@@ -333,25 +367,46 @@ def run_reconstruction_evaluation(paths: EvaluationPaths) -> int:
     return len(perf.common_event_numbers)
 
 
-def run_evaluation(exp_name, run_name, ckpt_name, cfg_path, data_path, num_events, device):
+def run_evaluation(
+    exp_name,
+    run_name,
+    ckpt_name,
+    cfg_path,
+    data_path,
+    num_events,
+    device,
+    *,
+    inference_only=False,
+    reco_only=False,
+    allow_missing_truth_jets=False,
+    max_missing_truth_jets_pct=10.0,
+):
     paths = derive_paths(exp_name, run_name, ckpt_name, cfg_path, data_path, dict(os.environ))
     print(f"Checkpoint: {paths.checkpoint}")
     print(f"Config: {paths.config}")
     print(f"Input ROOT: {paths.inference_data}")
     print(f"Truth sources: {paths.truth_sources}")
     print(f"Device: {device}; events: {'all' if num_events == -1 else num_events}")
-    started = time.perf_counter()
-    subprocess.run(build_inference_command(paths, num_events, device), cwd=ATLAS_DIR, check=True)
-    inference_seconds = time.perf_counter() - started
+    inference_seconds = None
+    if not reco_only:
+        started = time.perf_counter()
+        subprocess.run(build_inference_command(paths, num_events, device), cwd=ATLAS_DIR, check=True)
+        inference_seconds = time.perf_counter() - started
     if not paths.prediction.is_file():
-        raise FileNotFoundError(f"Inference completed without writing prediction: {paths.prediction}")
+        stage = "Inference completed without writing" if not reco_only else "Reconstruction input not found"
+        raise FileNotFoundError(f"{stage} prediction: {paths.prediction}")
+    if inference_only:
+        print(f"Prediction: {paths.prediction}")
+        print(f"Inference time: {inference_seconds:.1f} seconds")
+        return
     started = time.perf_counter()
-    common_events = run_reconstruction_evaluation(paths)
+    common_events = run_reconstruction_evaluation(paths, allow_missing_truth_jets, max_missing_truth_jets_pct)
     evaluation_seconds = time.perf_counter() - started
     print(f"Prediction: {paths.prediction}")
     print(f"Results: {paths.results}")
     print(f"Common evaluated events: {common_events:,}")
-    print(f"Inference time: {inference_seconds:.1f} seconds")
+    if inference_seconds is not None:
+        print(f"Inference time: {inference_seconds:.1f} seconds")
     print(f"Reconstruction evaluation time: {evaluation_seconds:.1f} seconds")
 
 
@@ -364,6 +419,11 @@ def parse_args(argv=None):
     parser.add_argument("--data-path", type=Path)
     parser.add_argument("--num-events", default=-1, type=validate_num_events)
     parser.add_argument("--device", choices=("cpu", "gpu"), default="gpu")
+    modes = parser.add_mutually_exclusive_group()
+    modes.add_argument("--inference-only", action="store_true")
+    modes.add_argument("--reco-only", action="store_true")
+    parser.add_argument("--allow-missing-truth-jets", action="store_true")
+    parser.add_argument("--max-missing-truth-jets-pct", default=10.0, type=validate_percentage)
     args = parser.parse_args(argv)
     for name in ("exp_name", "run_name", "ckpt_name"):
         if not getattr(args, name):
@@ -373,7 +433,19 @@ def parse_args(argv=None):
 
 def main():
     args = parse_args()
-    run_evaluation(args.exp_name, args.run_name, args.ckpt_name, args.cfg_path, args.data_path, args.num_events, args.device)
+    run_evaluation(
+        args.exp_name,
+        args.run_name,
+        args.ckpt_name,
+        args.cfg_path,
+        args.data_path,
+        args.num_events,
+        args.device,
+        inference_only=args.inference_only,
+        reco_only=args.reco_only,
+        allow_missing_truth_jets=args.allow_missing_truth_jets,
+        max_missing_truth_jets_pct=args.max_missing_truth_jets_pct,
+    )
 
 
 if __name__ == "__main__":

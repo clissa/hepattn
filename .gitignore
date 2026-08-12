@@ -140,6 +140,7 @@ dmypy.json
 logs/
 results/
 todo/
+docs/atlas/resources
 
 # Extra
 target

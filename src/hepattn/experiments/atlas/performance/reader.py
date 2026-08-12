@@ -139,7 +139,29 @@ _JET_GROUPS = [
 _JET_LEADS = ('AntiKt4TruthJetsPt', 'AntiKt4EMPFlowJetsPt', 'AntiKt4EMTopoJetsPt')
 
 
-def _load_jets_atlas(jets_path, target_keys, scale_E_pT=1, num_workers=32):
+def _jet_alignment(target_keys, key_to_idx, allow_missing=False, max_missing_pct=10.0, num_jet_files=1):
+    keep = np.array([int(key) in key_to_idx for key in target_keys], dtype=bool)
+    missing = [int(key) for key, is_present in zip(target_keys, keep, strict=True) if not is_present]
+    if missing:
+        missing_pct = 100 * len(missing) / len(target_keys)
+        message = (
+            f"{len(missing)} of {len(target_keys)} truth event keys ({missing_pct:.2f}%) "
+            f"not found in {num_jet_files} jets_path file(s) (e.g. {missing[:5]})"
+        )
+        if not allow_missing:
+            raise ValueError(f"{message}; cannot align jet collections.")
+        if missing_pct > max_missing_pct:
+            raise ValueError(f"{message}; exceeds the allowed maximum of {max_missing_pct:.2f}%.")
+        print(f"\033[93mWarning: {message}; skipping these truth events.\033[0m")
+
+    order = np.array([key_to_idx[int(key)] for key in target_keys[keep]], dtype=np.int64)
+    return order, keep
+
+
+def _load_jets_atlas(
+    jets_path, target_keys, scale_E_pT=1, num_workers=32,
+    allow_missing=False, max_missing_pct=10.0,
+):
     """Load jet collections from a dedicated jets file (no particle-level info) and
     reorder/filter them to align exactly with `target_keys` — the truth events'
     unique (eventNumber, mcChannelNumber) keys.
@@ -190,12 +212,9 @@ def _load_jets_atlas(jets_path, target_keys, scale_E_pT=1, num_workers=32):
     key_to_idx = {}
     for i, k in enumerate(jet_keys):
         key_to_idx.setdefault(int(k), i)
-    missing = [int(k) for k in target_keys if int(k) not in key_to_idx]
-    if missing:
-        raise ValueError(
-            f"{len(missing)} truth event keys not found in jets_path files "
-            f"(e.g. {missing[:5]}); cannot align jet collections.")
-    order = np.array([key_to_idx[int(k)] for k in target_keys], dtype=np.int64)
+    order, keep = _jet_alignment(
+        target_keys, key_to_idx, allow_missing=allow_missing,
+        max_missing_pct=max_missing_pct, num_jet_files=len(paths))
 
     jets = {}
     if 'AntiKt4TruthJetsPt' in arr.fields:
@@ -220,18 +239,22 @@ def _load_jets_atlas(jets_path, target_keys, scale_E_pT=1, num_workers=32):
             'AntiKt4EMTopoJetsPhi': arr['AntiKt4EMTopoJetsPhi'][order],
             'AntiKt4EMTopoJetsE': arr['AntiKt4EMTopoJetsE'][order] * scale_E_pT,
         })
-    return jets
+    return jets, keep
 
 
-def _augment_with_jets(result, jets_path, scale_E_pT=1, num_workers=32):
+def _augment_with_jets(result, jets_path, scale_E_pT=1, num_workers=32,
+                       allow_missing=False, max_missing_pct=10.0):
     """If jet collections are absent from `result` and `jets_path` is given, load
     them from `jets_path` (aligned to the truth events) and fill them in."""
     if jets_path is None:
         return result
     if all(k in result for k in _JET_LEADS):
         return result  # jets already present from filepath / cache
-    jets = _load_jets_atlas(
-        jets_path, result['unique_event_key'], scale_E_pT=scale_E_pT, num_workers=num_workers)
+    jets, keep = _load_jets_atlas(
+        jets_path, result['unique_event_key'], scale_E_pT=scale_E_pT, num_workers=num_workers,
+        allow_missing=allow_missing, max_missing_pct=max_missing_pct)
+    if not keep.all():
+        result = {key: value[keep] for key, value in result.items()}
     for k, v in jets.items():
         if k not in result:
             result[k] = v
@@ -239,7 +262,8 @@ def _augment_with_jets(result, jets_path, scale_E_pT=1, num_workers=32):
 
 
 def load_truth_atlas(filepath, topo=False, fiducial_cuts=False, num_workers=32,
-                     use_cache=True, cache_path=None, jets_path=None):
+                     use_cache=True, cache_path=None, jets_path=None,
+                     allow_missing_jets=False, max_missing_jets_pct=10.0):
     from pathlib import Path
 
     # Resolve cache_path. If not given and filepath is a .txt list, derive a default
@@ -266,7 +290,9 @@ def load_truth_atlas(filepath, topo=False, fiducial_cuts=False, num_workers=32,
             for k in ("event_number", "mc_channel_number", "unique_event_key"):
                 if k in merged:
                     merged[k] = ak.to_numpy(merged[k]).astype(np.int64)
-            return _augment_with_jets(merged, jets_path, num_workers=num_workers)
+            return _augment_with_jets(
+                merged, jets_path, num_workers=num_workers, allow_missing=allow_missing_jets,
+                max_missing_pct=max_missing_jets_pct)
 
     # If filepath is a .txt list, use uproot.concatenate to load all files in parallel
     # (one round-trip through uproot's threaded I/O instead of N serial Python loops).
@@ -393,7 +419,9 @@ def load_truth_atlas(filepath, topo=False, fiducial_cuts=False, num_workers=32,
                 ak.to_parquet(ak.zip(merged, depth_limit=1), cache_path)
             except Exception as e:
                 print(f"\033[93mFailed to write cache ({e}); continuing without it.\033[0m")
-        return _augment_with_jets(merged, jets_path, scale_E_pT=scale_E_pT, num_workers=num_workers)
+        return _augment_with_jets(
+            merged, jets_path, scale_E_pT=scale_E_pT, num_workers=num_workers,
+            allow_missing=allow_missing_jets, max_missing_pct=max_missing_jets_pct)
 
     scale_E_pT=1
     pt_min_gev=0.01
@@ -573,6 +601,8 @@ def load_truth_atlas(filepath, topo=False, fiducial_cuts=False, num_workers=32,
     # for key in tqdm(return_dict.keys(), desc="Sorting truth events by event number..."):
     #     return_dict[key] = return_dict[key][sorted_idx]
 
-    return_dict = _augment_with_jets(return_dict, jets_path, scale_E_pT=scale_E_pT, num_workers=num_workers)
+    return_dict = _augment_with_jets(
+        return_dict, jets_path, scale_E_pT=scale_E_pT, num_workers=num_workers,
+        allow_missing=allow_missing_jets, max_missing_pct=max_missing_jets_pct)
 
     return return_dict
