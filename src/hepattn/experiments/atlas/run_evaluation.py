@@ -45,12 +45,15 @@ EXP_NAME = "long-run"
 # CFG_PATH = ATLAS_DIR / "configs" / "long-run/base_MDN_jz1234.yaml"
 
 # MDN base config -- full data
-RUN_NAME = "MDN_jz1234_v1-full/atlas_MDN_jz1234_v1-full_20260819-T212546"
-CKPT_NAME = "epoch=050-val_loss=3.36712.ckpt"
-# CKPT_NAME = "epoch=076-val_loss=3.18772.ckpt" # best
-CFG_PATH = ATLAS_DIR / "configs" / "long-run/full_MDN_jz1234.yaml"
+# RUN_NAME = "MDN_jz1234_v1-full/atlas_MDN_jz1234_v1-full_20260819-T212546"
+# CKPT_NAME = "epoch=050-val_loss=3.36712.ckpt"
+# # CKPT_NAME = "epoch=076-val_loss=3.18772.ckpt" # best
+# CFG_PATH = ATLAS_DIR / "configs" / "long-run/full_MDN_jz1234.yaml"
 
-
+# original GLOW config -- full data
+RUN_NAME = "GLOW_jz1234_v1-full/atlas_GLOW_jz1234_v1-full_20260826-T224206"
+CKPT_NAME = "epoch=050-val_loss=5.30369.ckpt"
+CFG_PATH = ATLAS_DIR / "configs" / "long-run/full_GLOW_jz1234.yaml"
 
 IND_THRESHOLD = 0.50
 ASSOC_TRACK_PT_THRESHOLD = 100
