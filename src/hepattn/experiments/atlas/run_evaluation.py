@@ -33,9 +33,17 @@ EXP_NAME = "long-run"
 # RUN_NAME = "atlas_MDN_focal_20260730-T223903"
 # CKPT_NAME = "epoch=048-val_loss=4.91068.ckpt"
 # CFG_PATH = ATLAS_DIR / "configs" / "base_MDN_focal.yaml"
-RUN_NAME = "mdn_null035_incaux_detw30-longrun/mdn_null035_incaux_detw30_longrun_20260807-T155203"
-CKPT_NAME = "epoch=057-val_loss=2.17057.ckpt"
-CFG_PATH = ATLAS_DIR / "configs" / "long-run/mdn_null035_incaux_detw30_longrun.yaml"
+
+# MDN after quick-search
+# RUN_NAME = "mdn_null035_incaux_detw30-longrun/mdn_null035_incaux_detw30_longrun_20260807-T155203"
+# CKPT_NAME = "epoch=057-val_loss=2.17057.ckpt"
+# CFG_PATH = ATLAS_DIR / "configs" / "long-run/mdn_null035_incaux_detw30_longrun.yaml"
+
+# MDN base config -- subsample
+RUN_NAME = "MDN_jz1234_v1/atlas_MDN_jz1234_v1_20260812-T123425"
+CKPT_NAME = "epoch=196-val_loss=3.31453.ckpt"
+CFG_PATH = ATLAS_DIR / "configs" / "long-run/base_MDN_jz1234.yaml"
+
 
 
 IND_THRESHOLD = 0.50
