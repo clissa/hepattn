@@ -46,7 +46,8 @@ EXP_NAME = "long-run"
 
 # MDN base config -- full data
 RUN_NAME = "MDN_jz1234_v1-full/atlas_MDN_jz1234_v1-full_20260819-T212546"
-CKPT_NAME = "epoch=076-val_loss=3.18772.ckpt"
+CKPT_NAME = "epoch=050-val_loss=3.36712.ckpt"
+# CKPT_NAME = "epoch=076-val_loss=3.18772.ckpt" # best
 CFG_PATH = ATLAS_DIR / "configs" / "long-run/full_MDN_jz1234.yaml"
 
 
