@@ -40,9 +40,14 @@ EXP_NAME = "long-run"
 # CFG_PATH = ATLAS_DIR / "configs" / "long-run/mdn_null035_incaux_detw30_longrun.yaml"
 
 # MDN base config -- subsample
-RUN_NAME = "MDN_jz1234_v1/atlas_MDN_jz1234_v1_20260812-T123425"
-CKPT_NAME = "epoch=196-val_loss=3.31453.ckpt"
-CFG_PATH = ATLAS_DIR / "configs" / "long-run/base_MDN_jz1234.yaml"
+# RUN_NAME = "MDN_jz1234_v1/atlas_MDN_jz1234_v1_20260812-T123425"
+# CKPT_NAME = "epoch=196-val_loss=3.31453.ckpt"
+# CFG_PATH = ATLAS_DIR / "configs" / "long-run/base_MDN_jz1234.yaml"
+
+# MDN base config -- full data
+RUN_NAME = "MDN_jz1234_v1-full/atlas_MDN_jz1234_v1-full_20260819-T212546"
+CKPT_NAME = "epoch=076-val_loss=3.18772.ckpt"
+CFG_PATH = ATLAS_DIR / "configs" / "long-run/full_MDN_jz1234.yaml"
 
 
 
