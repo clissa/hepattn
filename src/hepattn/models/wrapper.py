@@ -169,6 +169,15 @@ class ModelWrapper(LightningModule):
         return outputs, preds, losses
 
     def on_train_start(self):
+        if self.lrs_config.get("resume_constant_lr"):
+            if not self.trainer.ckpt_path or self.lrs_config.get("skip_scheduler"):
+                raise ValueError("resume_constant_lr requires a full --ckpt_path resume and skip_scheduler: false")
+            # Lightning has restored model, optimizer and scheduler state by this hook.
+            # factor=1 leaves the restored LR unchanged and never modifies betas.
+            for config in self.trainer.lr_scheduler_configs:
+                config.scheduler = torch.optim.lr_scheduler.ConstantLR(config.scheduler.optimizer, factor=1.0, total_iters=1)
+            return
+
         # Manually overwride the learning rate in case we are starting
         # from a checkpoint that had a LRS and now we want a flat LR
         if self.lrs_config.get("skip_scheduler"):
