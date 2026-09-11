@@ -1391,7 +1391,12 @@ class IncidenceBasedRegressionTask(RegressionTask):
 
 
 class IncidenceBasedMixtureRegressionTask(IncidenceBasedRegressionTask):
-    """Incidence-based diagonal Gaussian-mixture regression in scaled space."""
+    """Incidence-based diagonal Gaussian-mixture regression in scaled space.
+
+    In l1 mode, deterministic_loss_weight multiplies the mean point error over
+    all five fields. mdn_loss_weight adds the E/pt NLL; zero bypasses its computation.
+    The optional geometry mode retains its angular-only deterministic objective.
+    """
 
     geometry_eta_weight = 1.0 / 3.0
     geometry_phi_weight = 2.0 / 3.0
@@ -1559,26 +1564,33 @@ class IncidenceBasedMixtureRegressionTask(IncidenceBasedRegressionTask):
             [targets[self.target_object + "_" + field] for field in self.deterministic_fields],
             dim=-1,
         ).to(torch.float32)
-        log_weights = outputs[self.output_object + "_mdn_log_weights"].to(torch.float32)
-        means = outputs[self.output_object + "_mdn_means"].to(torch.float32)
-        scales = outputs[self.output_object + "_mdn_scales"].to(torch.float32)
-        deterministic = outputs[self.output_object + "_deterministic_regr"].to(torch.float32)
         valid = targets[self.target_object + "_valid"].bool()
         target_mdn = target_mdn.masked_fill(~valid.unsqueeze(-1), 0.0)
         target_deterministic = target_deterministic.masked_fill(~valid.unsqueeze(-1), 0.0)
 
-        standardized = (target_mdn.unsqueeze(-2) - means) / scales
-        component_log_prob = -0.5 * (standardized.square() + 2 * scales.log() + math.log(2 * math.pi)).sum(dim=-1)
-        mdn_nll = -torch.logsumexp(log_weights + component_log_prob, dim=-1)
+        # Bypass disabled NLL: multiplying NaN/Inf by zero does not remove it.
+        mdn_nll = target_mdn.new_zeros(valid.shape)
+        if self.mdn_loss_weight != 0.0:
+            # Mask operands before nonlinear operations to keep padding gradients finite.
+            log_weights = outputs[self.output_object + "_mdn_log_weights"].to(torch.float32).masked_fill(~valid.unsqueeze(-1), 0.0)
+            means = outputs[self.output_object + "_mdn_means"].to(torch.float32).masked_fill(~valid[..., None, None], 0.0)
+            scales = outputs[self.output_object + "_mdn_scales"].to(torch.float32).masked_fill(~valid[..., None, None], 1.0)
+            standardized = (target_mdn.unsqueeze(-2) - means) / scales
+            component_log_prob = -0.5 * (standardized.square() + 2 * scales.log() + math.log(2 * math.pi)).sum(dim=-1)
+            mdn_nll = -torch.logsumexp(log_weights + component_log_prob, dim=-1)
         if self.deterministic_loss_mode == "l1":
+            point = outputs[self.output_object + "_regr"].to(torch.float32).masked_fill(~valid.unsqueeze(-1), 0.0)
+            target = torch.cat([target_mdn, target_deterministic], dim=-1)
+            # Preserve the original GLOW mean over all five fields.
             deterministic_losses = {
                 "deterministic_l1": torch.nn.functional.l1_loss(
-                    deterministic,
-                    target_deterministic,
+                    point,
+                    target,
                     reduction="none",
                 ).mean(dim=-1)
             }
         else:
+            deterministic = outputs[self.output_object + "_deterministic_regr"].to(torch.float32)
             pred_phi = torch.atan2(deterministic[..., 1], deterministic[..., 2])
             target_phi = torch.atan2(target_deterministic[..., 1], target_deterministic[..., 2])
             pred_norm_sq = deterministic[..., 1].square() + deterministic[..., 2].square()

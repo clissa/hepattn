@@ -4,7 +4,7 @@ import pytest
 import torch
 from torch import nn
 
-from hepattn.models.task import IncidenceBasedMixtureRegressionTask
+from hepattn.models.task import IncidenceBasedMixtureRegressionTask, IncidenceBasedRegressionTask
 
 
 class ConstantHead(nn.Module):
@@ -192,6 +192,7 @@ def loss_outputs(
     deterministic: torch.Tensor,
 ) -> dict[str, torch.Tensor]:
     return {
+        "pflow_regr": torch.cat([(log_weights.exp().unsqueeze(-1) * means).sum(dim=-2), deterministic], dim=-1),
         "pflow_mdn_log_weights": log_weights,
         "pflow_mdn_means": means,
         "pflow_mdn_scales": scales,
@@ -222,7 +223,7 @@ def test_analytic_mixture_nll(tmp_path):
 
     expected = -math.log((0.25 + 0.75 * math.exp(-1.0)) / (2 * math.pi))
     torch.testing.assert_close(losses["mdn_nll"], torch.tensor(expected))
-    torch.testing.assert_close(losses["deterministic_l1"], torch.tensor(0.0))
+    torch.testing.assert_close(losses["deterministic_l1"], torch.tensor(1.8))
 
 
 def test_single_component_matches_diagonal_gaussian_nll(tmp_path):
@@ -266,7 +267,7 @@ def test_valid_masking_and_weighted_separate_losses(tmp_path):
 
     expected_nll = torch.tensor([math.log(2 * math.pi), math.log(2 * math.pi) + 1.0]).mean()
     torch.testing.assert_close(losses["mdn_nll"], expected_nll)
-    torch.testing.assert_close(losses["deterministic_l1"], torch.tensor(12.0))
+    torch.testing.assert_close(losses["deterministic_l1"], torch.tensor(8.4))
 
 
 def test_default_deterministic_loss_remains_mean_l1(tmp_path):
@@ -282,7 +283,7 @@ def test_default_deterministic_loss_remains_mean_l1(tmp_path):
 
     assert task.deterministic_loss_mode == "l1"
     assert losses.keys() == {"mdn_nll", "deterministic_l1"}
-    torch.testing.assert_close(losses["deterministic_l1"], torch.tensor(16.0))
+    torch.testing.assert_close(losses["deterministic_l1"], torch.tensor(9.6))
 
 
 def test_geometry_loss_wraps_phi_at_pi(tmp_path):
@@ -402,7 +403,7 @@ def test_nan_padded_invalid_targets_do_not_poison_loss_or_gradients(tmp_path):
 
     expected_nll = torch.tensor(2.5 + math.log(2 * math.pi))
     torch.testing.assert_close(losses["mdn_nll"], expected_nll)
-    torch.testing.assert_close(losses["deterministic_l1"], torch.tensor(12.0))
+    torch.testing.assert_close(losses["deterministic_l1"], torch.tensor(10.8))
     assert all(torch.isfinite(loss) for loss in losses.values())
     assert torch.equal(per_element["mdn_nll"][~valid], torch.zeros(1))
     assert torch.equal(per_element["deterministic_l1"][~valid], torch.zeros(1))
@@ -527,3 +528,82 @@ def test_predict_preserves_legacy_schema_without_mixture_parameters(tmp_path):
     )
     assert set(predictions) == expected
     assert not any("mdn" in name or "mixture" in name for name in predictions)
+
+
+@pytest.mark.parametrize("per_element", [False, True])
+def test_disabled_nll_matches_original_glow_with_nonfinite_mdn_outputs(tmp_path, per_element):
+    task = make_task(tmp_path, [0.0] * 8)
+    task.mdn_loss_weight = 0.0
+    task.deterministic_loss_weight = 10.0
+    task.loss_weight = 10.0  # Original GLOW uses this attribute.
+    point = torch.tensor([[[1.0, 2.0, 3.0, 4.0, 5.0], [2.0, 4.0, 6.0, 8.0, 10.0]]], requires_grad=True)
+    valid = torch.tensor([[True, False]])
+    targets = loss_targets(torch.zeros(1, 2, 2), torch.zeros(1, 2, 3), valid)
+    outputs = {"pflow_regr": point, "pflow_deterministic_regr": point[..., 2:]}
+    # These tensors must never participate in the loss graph when NLL is disabled.
+    for key, shape in [("log_weights", (1, 2, 1)), ("means", (1, 2, 1, 2)), ("scales", (1, 2, 1, 2))]:
+        outputs["pflow_mdn_" + key] = torch.full(shape, torch.nan, requires_grad=True)
+    if per_element:
+        losses = task.loss_per_element(outputs, targets)
+        reference = IncidenceBasedRegressionTask.loss_per_element(task, outputs, targets)["l1"]
+    else:
+        losses = task.loss(outputs, targets)
+        reference = IncidenceBasedRegressionTask.loss(task, outputs, targets)["l1"]
+    actual = sum(losses.values())
+    torch.testing.assert_close(actual, reference)
+    gradients = torch.autograd.grad(
+        actual.sum(),
+        [point, *(outputs["pflow_mdn_" + key] for key in ("log_weights", "means", "scales"))],
+        retain_graph=True,
+        allow_unused=True,
+    )
+    torch.testing.assert_close(
+        gradients[0],
+        torch.autograd.grad(reference.sum(), point)[0],
+    )
+    assert torch.count_nonzero(losses["mdn_nll"]) == 0
+    assert all(gradient is None for gradient in gradients[1:])
+
+
+@pytest.mark.parametrize("all_invalid", [False, True])
+def test_nonfinite_padded_loss_inputs_have_finite_zero_gradients(tmp_path, all_invalid):
+    task = make_task(tmp_path, [0.0] * 8)
+    valid = torch.tensor([[not all_invalid, False]])
+    point = torch.zeros(1, 2, 5).masked_fill(~valid[..., None], torch.nan).requires_grad_()
+    log_weights = torch.zeros(1, 2, 1).masked_fill(~valid[..., None], torch.inf).requires_grad_()
+    means = torch.zeros(1, 2, 1, 2).masked_fill(~valid[..., None, None], torch.nan).requires_grad_()
+    scales = torch.ones(1, 2, 1, 2).masked_fill(~valid[..., None, None], 0.0).requires_grad_()
+    outputs = {
+        "pflow_regr": point,
+        "pflow_deterministic_regr": point[..., 2:],
+        "pflow_mdn_log_weights": log_weights,
+        "pflow_mdn_means": means,
+        "pflow_mdn_scales": scales,
+    }
+    target = torch.ones(1, 2, 5).masked_fill(~valid[..., None], torch.nan)
+    targets = loss_targets(target[..., :2], target[..., 2:], valid)
+    losses = task.loss(outputs, targets)
+    per_element = task.loss_per_element(outputs, targets)
+    sum(losses.values()).backward()
+    assert all(torch.isfinite(loss).all() for loss in losses.values())
+    assert all(torch.count_nonzero(loss[~valid]) == 0 for loss in per_element.values())
+    for tensor in (point, log_weights, means, scales):
+        assert torch.isfinite(tensor.grad).all()
+        assert torch.count_nonzero(tensor.grad[~valid]) == 0
+
+
+def test_full_l1_trains_mixture_point_when_nll_is_disabled(tmp_path):
+    task = make_task(tmp_path, [0.0] * 13, num_components=2)
+    task.mdn_loss_weight = 0.0
+    logits = torch.tensor([[[0.0, 1.0]]], requires_grad=True)
+    means = torch.tensor([[[[1.0, 2.0], [3.0, 4.0]]]], requires_grad=True)
+    scales = torch.full_like(means, torch.inf, requires_grad=True)
+    deterministic = torch.ones(1, 1, 3, requires_grad=True)
+    targets = loss_targets(torch.zeros(1, 1, 2), torch.zeros(1, 1, 3), torch.ones(1, 1, dtype=torch.bool))
+    outputs = loss_outputs(logits.log_softmax(-1), means, scales, deterministic)
+    losses = task.loss(outputs, targets)
+    sum(losses.values()).backward()
+    for tensor in (logits, means, deterministic):
+        assert torch.isfinite(tensor.grad).all()
+        assert torch.count_nonzero(tensor.grad) == tensor.numel()
+    assert scales.grad is None
