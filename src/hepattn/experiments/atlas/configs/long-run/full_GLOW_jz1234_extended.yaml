@@ -1,0 +1,22 @@
+# Overlay for continuing the completed 80-epoch full GLOW run.
+# Load this after full_GLOW_jz1234.yaml; the 70 new epochs bring training to 150 total.
+name: atlas_GLOW_jz1234_v1-full_extended
+
+trainer:
+  max_epochs: 70
+  default_root_dir: /home/lclissa/projects/hepattn/results/long-run/GLOW_jz1234_v1-full_extended
+
+model:
+  # Weight-only initialization deliberately avoids restoring the exhausted 80-epoch
+  # OneCycleLR state from the source checkpoint.
+  init_ckpt_path: /home/lclissa/projects/hepattn/results/long-run/GLOW_jz1234_v1-full/atlas_GLOW_jz1234_v1-full_20260831-T140852/ckpts/epoch=079-val_loss=5.21820.ckpt
+
+  lrs_config:
+    # Continue from the original schedule's terminal learning rate and decay
+    # smoothly over the additional 70 epochs, without a new warmup or LR spike.
+    initial: 1e-6
+    max: 1e-6
+    end: 1e-7
+    pct_start: 0.0
+    weight_decay: 1e-4
+    skip_scheduler: false
