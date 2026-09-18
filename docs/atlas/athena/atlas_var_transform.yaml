@@ -1,0 +1,60 @@
+eta:
+  type: min_max_sym
+  mean: null
+  std: null
+  min: -3.000
+  max: 3.000
+
+pt:
+  type: min_max_sym
+  fn: sqrt
+  mean: 0.646
+  std: 2.461
+  min: 0.001
+  max: 20.000
+
+e:
+  type: min_max_sym
+  fn: sqrt
+  mean: 1.857
+  std: 4.018
+  min: 0.001
+  max: 20.000
+
+d0:
+  type: min_max_sym
+  mean: -0.000
+  std: 0.463
+  min: -10.000
+  max: 10.000
+  range: [-1,1] # correct min: -65.667, max: 46.150
+
+z0:
+  type: min_max_sym
+  mean: null
+  std: null
+  min: -100.000
+  max: 100.000
+  range: [-1,1] # correct ???
+
+num_cells:
+  type: min_max_sym
+  mean: null
+  std: null
+  min: 1.000
+  max: 650.000 # correct 1351.000
+
+center_mag:
+  type: min_max_sym
+  mean: 2121.143
+  std: 1838.072
+  min: 1452.598
+  max: 6480.705
+
+center_lambda:
+  type: min_max_sym
+  fn: sqrt
+  mean: 11.424
+  std: 13.078
+  min: 0.000
+  max: 127.086
