@@ -16,7 +16,10 @@ Keep these files together in any directory:
 
 The Python file imports `hepattn`; it does not contain a duplicate standalone
 implementation. All repository paths below are relative to the repository root,
-not to the directory containing this guide. Repository URL: [ATLAS GitLab -- GLOW](https://gitlab.cern.ch/atlas-jetetmiss/pflow/commontools/glow#) (check `main` branch).
+not to the directory containing this guide. Repository URL:
+
+- [clissa/hepattn](https://github.com/clissa/hepattn) (`main` branch is up-to-date)
+- [ATLAS GitLab -- GLOW](https://gitlab.cern.ch/atlas-jetetmiss/pflow/commontools/glow#) (check `main` branch, push ongoing).
 
 ## Exact checkpoints
 
