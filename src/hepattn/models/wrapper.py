@@ -169,6 +169,31 @@ class ModelWrapper(LightningModule):
         return outputs, preds, losses
 
     def on_train_start(self):
+        if self.lrs_config.get("resume_cosine_lr"):
+            if not self.trainer.ckpt_path or self.lrs_config.get("skip_scheduler") or self.lrs_config.get("resume_constant_lr"):
+                raise ValueError("resume_cosine_lr requires a full checkpoint resume, skip_scheduler: false and resume_constant_lr: false")
+            remaining_steps = int(self.trainer.estimated_stepping_batches) - self.global_step
+            if remaining_steps <= 0:
+                raise ValueError("The cosine continuation requires remaining optimizer steps")
+            for config in self.trainer.lr_scheduler_configs:
+                restored = config.scheduler.state_dict()
+                opt = config.scheduler.optimizer
+                end_lr = float(self.lrs_config["end"])
+                if not 0 < end_lr <= min(group["lr"] for group in opt.param_groups):
+                    raise ValueError("The continuation end LR must be positive and no greater than the restored LR")
+                continuing = restored.get("hepattn_cosine_tail", False)
+                if continuing and (restored["T_max"] != restored["last_epoch"] + remaining_steps or restored["eta_min"] != end_lr):
+                    raise ValueError("Resuming a cosine continuation requires the same step horizon and end LR")
+                scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=remaining_steps, eta_min=end_lr)
+                # OneCycle leaves initial_lr in optimizer groups. Anchor this tail
+                # to the actual restored LR instead, without changing LR or betas.
+                scheduler.base_lrs = [group["lr"] for group in opt.param_groups]
+                if continuing:
+                    scheduler.load_state_dict(restored)
+                scheduler.hepattn_cosine_tail = True
+                config.scheduler = scheduler
+            return
+
         if self.lrs_config.get("resume_constant_lr"):
             if not self.trainer.ckpt_path or self.lrs_config.get("skip_scheduler"):
                 raise ValueError("resume_constant_lr requires a full --ckpt_path resume and skip_scheduler: false")
