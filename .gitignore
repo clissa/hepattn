@@ -141,6 +141,7 @@ logs/
 results/
 todo/
 docs/atlas/resources
+docs/atlas/glow-illustration-astra-v*.png
 
 # Extra
 target
