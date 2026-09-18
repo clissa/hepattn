@@ -1,24 +1,25 @@
 # Overlay for continuing the completed 80-epoch full GLOW run.
 # Load this after full_GLOW_jz1234.yaml. Restore the full epoch-79 checkpoint,
-# then hold its LR and betas fixed for the remaining 70 epochs.
-name: atlas_GLOW_jz1234_v1-full_resume
+# then decay its LR to 1e-7 over the remaining 70 epochs, keeping its betas.
+name: atlas_GLOW_jz1234_v1-full_resume_cosine
 
 ckpt_path: /home/lclissa/projects/hepattn/results/long-run/GLOW_jz1234_v1-full/atlas_GLOW_jz1234_v1-full_20260831-T140852/ckpts/epoch=079-val_loss=5.21820.ckpt
 
 trainer:
   max_epochs: 150
-  default_root_dir: /home/lclissa/projects/hepattn/results/long-run/GLOW_jz1234_v1-full_resume
+  default_root_dir: /home/lclissa/projects/hepattn/results/long-run/GLOW_jz1234_v1-full_resume_cosine
 
 model:
   init_ckpt_path: null
 
   lrs_config:
-    # Original settings construct the scheduler before checkpoint restoration.
+    # These settings construct a temporary scheduler before checkpoint restoration.
     # on_train_start replaces it after restoration, preserving optimizer state.
     initial: 1e-6
     max: 8e-5
-    end: 1e-6
+    end: 1e-7 # Experimental floor: one tenth of the original terminal LR.
     pct_start: 0.03
     weight_decay: 1e-4
     skip_scheduler: false
-    resume_constant_lr: true
+    resume_constant_lr: false
+    resume_cosine_lr: true
